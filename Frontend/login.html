@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Login</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body class = "bg-img">
+
+    <!-- Header -->
+    <div class="header">
+        <img src="assets/images/logo.png" alt="College Logo">
+    </div>
+    
+    <!-- Login Box -->
+    <div class="login-box">
+
+        <h2 id="loginTitle">Student Login</h2>
+
+        <!-- Role Buttons -->
+        <div class="role-buttons">
+            <button type="button" id="studentBtn" class="active">Student</button>
+            <button type="button" id="wardenBtn">Warden</button>
+        </div>
+
+        <form id="loginForm">
+            <!-- Hidden role value -->
+            <input type="hidden" id="role" value="student">
+
+            <input type="text" id="admission" placeholder="Admission / Registration Number" required>
+            <input type="password" id="password" placeholder="Password" required>
+
+            <button type="submit">Login</button>
+        </form>
+
+        <p class="register-text" id="registerText">
+            New User? <a href="register.html">Register here</a>
+        </p>
+    </div>
+
+    <script src="js/login.js"></script>
+</body>
+</html>
