@@ -5,7 +5,7 @@ body {
 }
 
 .bg-img {
-    background-image: url("../assets/images/background.jpg");
+    background-image: url("background.jpg");
     background-size: cover;
     background-repeat: no-repeat;
     background-position: center;
@@ -111,6 +111,7 @@ body {
     font-size: 18px;
     font-weight: 600;
     text-align: center;
+    border:2px solid black;
 }
 
 /* Profile image */
@@ -228,3 +229,23 @@ body {
 .menu-card button:hover {
     background-color: #1d4ed8;
 }
+
+
+/* Add border and styling around all file input fields */
+input[type="file"] {
+    border: 2px solid #ccc;
+    padding: 6px 10px;
+    border-radius: 6px;
+    width: 100%;
+    box-sizing: border-box;
+    background-color: #fff;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 1rem;
+}
+
+/* Optional: border color change on hover */
+input[type="file"]:hover {
+    border-color: #007bff;
+}
+

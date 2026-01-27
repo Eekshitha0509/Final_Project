@@ -1,8 +1,13 @@
-document.getElementById("registerForm").addEventListener("submit", function (e) {
-    e.preventDefault();
+ document.addEventListener("DOMContentLoaded", function () {
+            const form = document.getElementById("registerForm");
 
-    alert("Registration successful");
+            form.addEventListener("submit", function (e) {
+                e.preventDefault(); // prevent form from refreshing
 
-    // Redirect to profile page
-    window.location.href = "profile.html";
+                // Optional: show success alert
+                alert("Registration successful");
+
+        // Redirect to profile page 
+        window.location.href = "profile.html";
+    });
 });

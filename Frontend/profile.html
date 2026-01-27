@@ -11,21 +11,27 @@
 
     <!-- Header -->
     <div class="header">
-        <img src="assets/images/logo.png" alt="Logo">
+        <img src="assests/imageslogo.png" alt="Logo">
     </div>
     <h2>Student Profile</h2>
+
     <!-- Profile Page -->
     <div class="profile-page">
+
         <!-- Left: Profile Photo -->
         <div class="profile-left">
-            Profile Photo
+            <b>Profile Photo</b>
+            <div class="field">
+                        <label>Student Photo</label>
+                        <input type="file" accept="image/*" onchange="previewImage(this, 'student')">
+                        <img id="student" width="120" style="display:none;">
+                    </div>
             <button>Upload Photo</button>
         </div>
 
         <!-- Right: Profile Form -->
         <div class="profile-right">
             <form id="profileForm">
-
                 <h3>Personal Details</h3>
                 <div class="row">
                     <div class="field">
@@ -48,6 +54,7 @@
                         <input type="text" placeholder="Receipt Number">
                     </div>
                 </div>
+
                 <div class="row">
                     <div class="field full">
                         <label>Communication Address (with Parent / Guardian Name)</label>
@@ -65,6 +72,7 @@
                         <input type="text" placeholder="Enter category">
                     </div>
                 </div>
+
                 <div class="row">
                     <div class="field">
                         <label>Mess Type</label>
@@ -91,6 +99,67 @@
                     </div>
                 </div>
 
+                <!-- ================= ADDED SECTION START ================= -->
+
+                <h3>Document Uploads</h3>
+
+                <!-- Aadhaar PDFs -->
+                <div class="row">
+                    <div class="field">
+                        <label>Student Aadhaar (PDF)</label>
+                        <input type="file" accept="application/pdf">
+                    </div>
+                    <div class="field">
+                        <label>Mother Aadhaar (PDF)</label>
+                        <input type="file" accept="application/pdf">
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="field">
+                        <label>Father Aadhaar (PDF)</label>
+                        <input type="file" accept="application/pdf">
+                    </div>
+                </div>
+
+                <!-- Image uploads with preview -->
+                <h3>Photo Uploads</h3>
+
+                <div class="row">
+                    <div class="field">
+                        <label>Allotment Letter (Photo)</label>
+                        <input type="file" accept="image/*" onchange="previewImage(this, 'allotment')">
+                        <img id="allotment" width="120" style="display:none;">
+                    </div>
+                    <div class="field">
+                        <label>Student Signature</label>
+                        <input type="file" accept="image/*" onchange="previewImage(this, 'signature')">
+                        <img id="signature" width="120" style="display:none;">
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="field">
+                        <label>Mother Photo</label>
+                        <input type="file" accept="image/*" onchange="previewImage(this, 'mother')">
+                        <img id="mother" width="120" style="display:none;">
+                    </div>
+                    <div class="field">
+                        <label>Father Photo</label>
+                        <input type="file" accept="image/*" onchange="previewImage(this, 'father')">
+                        <img id="father" width="120" style="display:none;">
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="field">
+                        <label>Guardian Photo</label>
+                        <input type="file" accept="image/*" onchange="previewImage(this, 'guardian')">
+                        <img id="guardian" width="120" style="display:none;">
+                    </div>
+                </div>
+
+                <!-- ================= ADDED SECTION END ================= -->
 
                 <button type="submit" class="save-btn">Save / Update Profile</button>
 
@@ -100,6 +169,17 @@
     </div>
 
     <script src="js/profile.js"></script>
-</body>
 
+    <!-- ONLY ADDITION: image preview logic -->
+    <script>
+        function previewImage(input, id) {
+            const file = input.files[0];
+            if (!file) return;
+            const img = document.getElementById(id);
+            img.src = URL.createObjectURL(file);
+            img.style.display = "block";
+        }
+    </script>
+
+</body>
 </html>
