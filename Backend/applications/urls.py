@@ -1,12 +1,26 @@
+# applications/urls.py
 from django.urls import path
 from . import views
-from .views import test_api
-from .views import hostel_list
 
 urlpatterns = [
-    path('submit-profile/', views.submit_profile, name='submit-profile'),
-    path('applications/', views.HostelApplicationViewSet.as_view({'get': 'list', 'post': 'create'}), name='applications-list'),
-    path('applications/<int:pk>/', views.HostelApplicationViewSet.as_view({'get': 'retrieve', 'put': 'update', 'delete': 'destroy'}), name='applications-detail'),
-    path("test/", test_api),
-    path("hostel/", hostel_list),
+    # Authentication
+    path('register/', views.register, name='register'),
+    path('login/', views.login, name='login'),
+    path('profile/', views.get_profile, name='profile'),
+    path('profile/update/', views.submit_profile, name='submit-profile'),  # This line is important!
+    
+    # Blocks
+    path('blocks/', views.get_all_blocks, name='all-blocks'),
+    path('my-block/', views.get_block_for_year, name='my-block'),
+    
+    # Floors and Rooms
+    path('block/<int:block_id>/floors/', views.get_floors_with_rooms, name='block-floors'),
+    path('block/<str:block_name>/floor/<int:floor_number>/rooms/', 
+         views.get_rooms_for_floor, 
+         name='floor-rooms'),
+    
+    # Bookings
+    path('book-room/', views.book_room, name='book-room'),
+    path('my-booking/', views.get_student_booking, name='my-booking'),
+    path('cancel-booking/<int:booking_id>/', views.cancel_booking, name='cancel-booking'),
 ]

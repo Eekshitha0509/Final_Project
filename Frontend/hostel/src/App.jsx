@@ -1,34 +1,72 @@
+// App.jsx - Update this
 import React from "react";
-import Header from "./components/Header";
+import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
+import StudentLog from "./components/StudentLog";
+import AdminLog from "./components/AdminLog";
+import WardenLog from "./components/WardenLog";
+import Register from "./components/Register";
+import Homepage from "./pages/Homepage";
 import LandingPage from "./pages/LandingPage";
 import Profile from "./pages/Profile";
-import Homepage from "./pages/Homepage";
-import StudentLog from "./components/StudentLog";
+import RoomAllocation from "./pages/RoomAllocation";
 import MessPayment from "./pages/MessPayment";
+import RoomBooking from "./pages/RoomBooking"; // New component
 
-import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
+// Protected Route Component
+const ProtectedRoute = ({ children }) => {
+  const token = localStorage.getItem('access');
+  if (!token) {
+    return <Navigate to="/" />;
+  }
+  return children;
+};
 
 function App() {
   return (
     <Router>
-
-      <Header />
-
       <Routes>
-
+        {/* Public Routes */}
         <Route path="/" element={<LandingPage />} />
-        <Route path="/admin" element={<LandingPage />} />
-
-        <Route path="/profile" element={<Profile />} />
-        <Route path="/homepage" element={<Homepage />} />
-
-        {/* ⭐ Fix login route */}
-        <Route path="/login" element={<StudentLog />} />
-
-        <Route path="/mess-payment" element={<MessPayment />} />
-
+        
+        {/* Auth Routes */}
+        <Route path="/login/student" element={<StudentLog />} />
+        <Route path="/login/admin" element={<AdminLog />} />
+        <Route path="/login/warden" element={<WardenLog />} />
+        <Route path="/register" element={<Register />} />
+        
+        {/* Protected Routes */}
+        <Route path="/profile" element={
+          <ProtectedRoute>
+            <Profile />
+          </ProtectedRoute>
+        } />
+        
+        <Route path="/home" element={
+          <ProtectedRoute>
+            <Homepage />
+          </ProtectedRoute>
+        } />
+        
+        <Route path="/room-booking" element={
+          <ProtectedRoute>
+            <RoomBooking />
+          </ProtectedRoute>
+        } />
+        
+        <Route path="/room-allocation" element={
+          <ProtectedRoute>
+            <RoomAllocation />
+          </ProtectedRoute>
+        } />
+        
+        <Route path="/mess-payment" element={
+          <ProtectedRoute>
+            <MessPayment />
+          </ProtectedRoute>
+        } />
+        
+        <Route path="*" element={<Navigate to="/" />} />
       </Routes>
-
     </Router>
   );
 }
