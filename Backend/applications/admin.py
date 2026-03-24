@@ -3,6 +3,7 @@ from django.contrib import admin
 from django.contrib.auth.models import User
 from django.contrib.auth.admin import UserAdmin
 from .models import HostelApplication, StudentProfile, Block, Floor, Room, Booking, Profile
+from .models import Payment 
 
 class StudentProfileInline(admin.StackedInline):
     model = StudentProfile
@@ -56,3 +57,10 @@ class BookingAdmin(admin.ModelAdmin):
 class ProfileAdmin(admin.ModelAdmin):
     list_display = ['id', 'student', 'phone_number', 'emergency_contact', 'created_at']
     search_fields = ['student__user__username']
+
+@admin.register(Payment)
+class PaymentAdmin(admin.ModelAdmin):
+    list_display = ['id', 'booking', 'amount', 'payment_status', 'payment_date', 'razorpay_order_id']
+    list_filter = ['payment_status', 'payment_date']
+    search_fields = ['razorpay_order_id', 'razorpay_payment_id', 'booking__student__username']
+    readonly_fields = ['payment_date']

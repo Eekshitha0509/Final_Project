@@ -22,3 +22,68 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+
+# Python bytecode and cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pyc
+**/__pycache__/
+**/*.pyc
+
+# Virtual Environment
+aenv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+Backend/aenv/
+Backend/venv/
+
+# Django
+*.log
+local_settings.py
+db.sqlite3
+*.sqlite3
+*.sqlite
+Backend/db.sqlite3
+media/
+staticfiles/
+
+# Database dumps (you don't need these in git)
+*.json
+!package.json
+!package-lock.json
+Backend/auth_data.json
+Backend/datadump.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# React/Node
+Frontend/hostel/node_modules/
+Frontend/hostel/dist/
+Frontend/hostel/build/
+Frontend/hostel/.env
+Frontend/hostel/.env.local
+Frontend/hostel/.env.development.local
+Frontend/hostel/.env.test.local
+Frontend/hostel/.env.production.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Zip files (don't push archives)
+*.zip
+restored-files.zip

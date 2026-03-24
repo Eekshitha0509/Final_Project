@@ -11,7 +11,7 @@ import Profile from "./pages/Profile";
 import RoomAllocation from "./pages/RoomAllocation";
 import MessPayment from "./pages/MessPayment";
 import RoomBooking from "./pages/RoomBooking"; // New component
-
+import Payment from './pages/Payment';
 // Protected Route Component
 const ProtectedRoute = ({ children }) => {
   const token = localStorage.getItem('access');
@@ -33,6 +33,7 @@ function App() {
         <Route path="/login/admin" element={<AdminLog />} />
         <Route path="/login/warden" element={<WardenLog />} />
         <Route path="/register" element={<Register />} />
+        <Route path="/payment/:bookingId" element={<Payment />} />
         
         {/* Protected Routes */}
         <Route path="/profile" element={

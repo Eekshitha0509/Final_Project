@@ -7,10 +7,19 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
 from django.db import transaction
-from .models import StudentProfile, Block, Floor, Room, Booking, HostelApplication
+from django.views.decorators.csrf import csrf_exempt
+from django.http import JsonResponse
+from .models import StudentProfile, Block, Floor, Room, Booking, HostelApplication, Payment
 from .serializers import *
 import traceback
+import razorpay
+import hmac
+import hashlib
+import json
+from django.conf import settings
 
+# Initialize Razorpay client
+razorpay_client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
 
 # ==================== AUTHENTICATION VIEWS ====================
 
@@ -91,10 +100,12 @@ def login(request):
                 year = profile.year
                 branch = profile.branch
                 admission = profile.admission
+                phone_number = profile.phone_number
             except StudentProfile.DoesNotExist:
                 year = 1
                 branch = ""
                 admission = ""
+                phone_number = ""
             
             return Response({
                 'success': True,
@@ -107,7 +118,8 @@ def login(request):
                     'full_name': user.get_full_name(),
                     'admission': admission,
                     'year': year,
-                    'branch': branch
+                    'branch': branch,
+                    'phone_number': phone_number
                 },
                 'refresh': str(refresh),
                 'access': str(refresh.access_token),
@@ -398,3 +410,268 @@ def cancel_booking(request, booking_id):
         return Response({'message': 'Booking cancelled successfully'})
     except Booking.DoesNotExist:
         return Response({'error': 'Booking not found'}, status=status.HTTP_404_NOT_FOUND)
+
+
+# ==================== RAZORPAY PAYMENT VIEWS ====================
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def create_razorpay_order(request):
+    """Create Razorpay order for booking payment"""
+    try:
+        booking_id = request.data.get('booking_id')
+        
+        if not booking_id:
+            return Response({
+                'success': False,
+                'error': 'Booking ID is required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Get the booking
+        try:
+            booking = Booking.objects.get(
+                id=booking_id, 
+                student=request.user,
+                status='confirmed'
+            )
+        except Booking.DoesNotExist:
+            return Response({
+                'success': False,
+                'error': 'Booking not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        # Check if payment already exists and is completed
+        if Payment.objects.filter(booking=booking, payment_status='completed').exists():
+            return Response({
+                'success': False,
+                'error': 'Payment already completed for this booking'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Get student profile for contact details
+        try:
+            student_profile = StudentProfile.objects.get(user=request.user)
+            student_phone = student_profile.phone_number or ''
+        except StudentProfile.DoesNotExist:
+            student_phone = ''
+        
+        # Create new Razorpay order
+        order_amount = int(booking.room.price_per_semester * 100)
+        order_currency = 'INR'
+        
+        order_data = {
+            'amount': order_amount,
+            'currency': order_currency,
+            'receipt': f'booking_{booking.id}',
+            'payment_capture': 1,  # Auto capture payment
+            'notes': {
+                'booking_id': str(booking.id),
+                'student_id': str(request.user.id),
+                'student_name': request.user.get_full_name(),
+                'room_number': booking.room.room_number
+            }
+        }
+        
+        razorpay_order = razorpay_client.order.create(data=order_data)
+        
+        # Create payment record
+        payment = Payment.objects.create(
+            booking=booking,
+            amount=booking.room.price_per_semester,
+            razorpay_order_id=razorpay_order['id'],
+            payment_status='pending'
+        )
+        
+        return Response({
+            'success': True,
+            'order_id': razorpay_order['id'],
+            'amount': razorpay_order['amount'],
+            'currency': razorpay_order['currency'],
+            'key_id': settings.RAZORPAY_KEY_ID,
+            'payment_id': payment.id,
+            'booking_id': booking.id,
+            'student_name': request.user.get_full_name(),
+            'student_email': request.user.email,
+            'student_phone': student_phone
+        })
+        
+    except Exception as e:
+        print("Error creating order:", str(e))
+        print(traceback.format_exc())
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def verify_razorpay_payment(request):
+    """Verify Razorpay payment using Razorpay's utility"""
+    try:
+        razorpay_order_id = request.data.get('razorpay_order_id')
+        razorpay_payment_id = request.data.get('razorpay_payment_id')
+        razorpay_signature = request.data.get('razorpay_signature')
+        
+        # Verify signature using Razorpay's built-in utility
+        params_dict = {
+            'razorpay_order_id': razorpay_order_id,
+            'razorpay_payment_id': razorpay_payment_id,
+            'razorpay_signature': razorpay_signature
+        }
+        
+        try:
+            razorpay_client.utility.verify_payment_signature(params_dict)
+        except razorpay.errors.SignatureVerificationError:
+            return Response({
+                'success': False,
+                'error': 'Invalid payment signature'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Get payment record
+        try:
+            payment = Payment.objects.get(razorpay_order_id=razorpay_order_id)
+        except Payment.DoesNotExist:
+            return Response({
+                'success': False,
+                'error': 'Payment not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        # Update payment
+        with transaction.atomic():
+            payment.razorpay_payment_id = razorpay_payment_id
+            payment.razorpay_signature = razorpay_signature
+            payment.payment_status = 'completed'
+            payment.transaction_id = razorpay_payment_id
+            payment.save()
+            
+            booking = payment.booking
+        
+        return Response({
+            'success': True,
+            'message': 'Payment verified successfully',
+            'booking_id': booking.id,
+            'payment_id': payment.id
+        })
+        
+    except Exception as e:
+        print("Error verifying payment:", str(e))
+        print(traceback.format_exc())
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_payment_status(request, booking_id):
+    """Get payment status for a booking"""
+    try:
+        payment = Payment.objects.filter(
+            booking_id=booking_id,
+            booking__student=request.user
+        ).first()
+        
+        if payment:
+            return Response({
+                'success': True,
+                'payment_status': payment.payment_status,
+                'payment_id': payment.id,
+                'amount': str(payment.amount),
+                'payment_date': payment.payment_date,
+                'razorpay_order_id': payment.razorpay_order_id,
+                'razorpay_payment_id': payment.razorpay_payment_id
+            })
+        else:
+            return Response({
+                'success': True,
+                'payment_status': 'no_payment',
+                'message': 'No payment found for this booking'
+            })
+            
+    except Exception as e:
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+
+@csrf_exempt
+def razorpay_webhook(request):
+    """Handle Razorpay webhook events"""
+    if request.method == 'POST':
+        try:
+            # Get webhook signature from headers (for production)
+            razorpay_signature = request.headers.get('X-Razorpay-Signature')
+            
+            # Get raw payload
+            payload = request.body
+            
+            # Parse webhook data
+            data = json.loads(payload)
+            event = data.get('event')
+            
+            print(f"Webhook event received: {event}")
+            
+            if event == 'payment.captured':
+                payment_data = data.get('payload', {}).get('payment', {}).get('entity', {})
+                order_id = payment_data.get('order_id')
+                payment_id = payment_data.get('id')
+                
+                # Update payment record
+                try:
+                    payment = Payment.objects.get(razorpay_order_id=order_id)
+                    if payment.payment_status != 'completed':
+                        payment.payment_status = 'completed'
+                        payment.razorpay_payment_id = payment_id
+                        payment.transaction_id = payment_id
+                        payment.save()
+                        print(f"Payment updated via webhook: {payment_id}")
+                except Payment.DoesNotExist:
+                    print(f"Payment not found for order: {order_id}")
+                    
+            elif event == 'payment.failed':
+                payment_data = data.get('payload', {}).get('payment', {}).get('entity', {})
+                order_id = payment_data.get('order_id')
+                
+                try:
+                    payment = Payment.objects.get(razorpay_order_id=order_id)
+                    payment.payment_status = 'failed'
+                    payment.save()
+                    print(f"Payment marked as failed: {order_id}")
+                except Payment.DoesNotExist:
+                    print(f"Payment not found for order: {order_id}")
+            
+            return JsonResponse({'status': 'success'}, status=200)
+            
+        except Exception as e:
+            print(f"Webhook error: {str(e)}")
+            return JsonResponse({'error': str(e)}, status=400)
+    
+    return JsonResponse({'error': 'Method not allowed'}, status=405)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_payment_details(request, payment_id):
+    """Get payment details by ID"""
+    try:
+        payment = Payment.objects.get(
+            id=payment_id,
+            booking__student=request.user
+        )
+        return Response({
+            'success': True,
+            'payment_id': payment.id,
+            'amount': str(payment.amount),
+            'payment_status': payment.payment_status,
+            'payment_date': payment.payment_date,
+            'transaction_id': payment.transaction_id,
+            'razorpay_order_id': payment.razorpay_order_id,
+            'razorpay_payment_id': payment.razorpay_payment_id
+        })
+    except Payment.DoesNotExist:
+        return Response({
+            'success': False,
+            'error': 'Payment not found'
+        }, status=status.HTTP_404_NOT_FOUND)

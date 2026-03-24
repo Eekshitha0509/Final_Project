@@ -1,7 +1,7 @@
 # applications/serializers.py
 from rest_framework import serializers
 from django.contrib.auth.models import User
-from .models import HostelApplication, StudentProfile, Block, Floor, Room, Booking, Profile
+from .models import HostelApplication, StudentProfile, Block, Floor, Room, Booking, Profile, Payment
 
 class HostelApplicationSerializer(serializers.ModelSerializer):
     class Meta:
@@ -137,3 +137,52 @@ class ProfileSerializer(serializers.ModelSerializer):
         model = Profile
         fields = '__all__'
         read_only_fields = ['created_at', 'updated_at']
+
+
+        # Add these at the end of your serializers.py
+
+class PaymentSerializer(serializers.ModelSerializer):
+    student_name = serializers.CharField(source='booking.student.get_full_name', read_only=True)
+    room_number = serializers.CharField(source='booking.room.room_number', read_only=True)
+    
+    class Meta:
+        model = Payment
+        fields = '__all__'
+        read_only_fields = ['payment_date']
+
+
+class RoomDetailSerializer(serializers.ModelSerializer):
+    floor_number = serializers.IntegerField(source='floor.floor_number', read_only=True)
+    block_name = serializers.CharField(source='floor.block.display_name', read_only=True)
+    block_id = serializers.IntegerField(source='floor.block.id', read_only=True)
+    room_type_display = serializers.CharField(source='get_room_type_display', read_only=True)
+    available_beds = serializers.IntegerField(read_only=True)
+    is_full = serializers.BooleanField(read_only=True)
+    
+    class Meta:
+        model = Room
+        fields = '__all__'
+
+
+class BookingDetailSerializer(serializers.ModelSerializer):
+    student_name = serializers.CharField(source='student.get_full_name', read_only=True)
+    student_username = serializers.CharField(source='student.username', read_only=True)
+    room_number = serializers.CharField(source='room.room_number', read_only=True)
+    block_name = serializers.CharField(source='room.floor.block.display_name', read_only=True)
+    floor_number = serializers.IntegerField(source='room.floor.floor_number', read_only=True)
+    room_details = RoomDetailSerializer(source='room', read_only=True)
+    payment_status = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Booking
+        fields = '__all__'
+    
+    def get_payment_status(self, obj):
+        payment = obj.payments.order_by('-payment_date').first()
+        if payment:
+            return {
+                'status': payment.payment_status,
+                'amount': str(payment.amount),
+                'date': payment.payment_date
+            }
+        return None

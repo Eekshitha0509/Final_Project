@@ -11,6 +11,7 @@ function RoomAllocation() {
   const [selectedFloor, setSelectedFloor] = useState(null);
   const [loading, setLoading] = useState(true);
   const [booking, setBooking] = useState(null);
+  const [paymentStatus, setPaymentStatus] = useState(null); // ADDED
   const [error, setError] = useState('');
   const navigate = useNavigate();
 
@@ -36,6 +37,26 @@ function RoomAllocation() {
     fetchUserBlock();
     fetchUserBooking();
   }, []);
+
+  // ADDED: Check payment status
+  const checkPaymentStatus = async (bookingId) => {
+    try {
+      const token = localStorage.getItem('access');
+      const response = await axios.get(`http://127.0.0.1:8000/api/payments/status/${bookingId}/`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      setPaymentStatus(response.data);
+      
+      if (response.data.payment_status === 'completed') {
+        alert('Payment completed!');
+      } else if (response.data.payment_status === 'pending') {
+        alert('Payment pending. Please complete payment.');
+      }
+    } catch (err) {
+      console.log('No payment found');
+    }
+  };
 
   const fetchUserBlock = async () => {
     try {
@@ -77,6 +98,7 @@ function RoomAllocation() {
       
       if (response.data.message !== 'No active booking') {
         setBooking(response.data);
+        checkPaymentStatus(response.data.id); // ADDED
       }
     } catch (err) {
       // No booking found - that's fine
@@ -84,6 +106,7 @@ function RoomAllocation() {
     }
   };
 
+  // MODIFIED: Updated to redirect to payment
   const handleBookRoom = async (roomId) => {
     try {
       const token = localStorage.getItem('access');
@@ -92,13 +115,12 @@ function RoomAllocation() {
         { headers: { Authorization: `Bearer ${token}` }}
       );
       
-      alert('Room booked successfully!');
-      setBooking(response.data.booking);
+      alert('Room booked successfully! Please complete payment.');
       
-      // Refresh floors to update availability
-      if (block) {
-        fetchFloorsWithRooms(block.id);
-      }
+      // Navigate to payment page with booking ID
+      const bookingId = response.data.booking.id;
+      navigate(`/payment/${bookingId}`);
+      
     } catch (err) {
       alert(err.response?.data?.error || 'Booking failed');
     }
@@ -115,6 +137,7 @@ function RoomAllocation() {
       
       alert('Booking cancelled successfully');
       setBooking(null);
+      setPaymentStatus(null); // ADDED
       
       // Refresh floors
       if (block) {
@@ -169,7 +192,7 @@ function RoomAllocation() {
         )}
 
         {booking ? (
-          // Show current booking
+          // MODIFIED: Show current booking with payment status
           <div className="bg-white rounded-xl shadow-lg p-8 text-center">
             <div className="text-6xl mb-4">🎉</div>
             <h2 className="text-2xl font-bold text-gray-800 mb-4">
@@ -186,16 +209,35 @@ function RoomAllocation() {
                 <span className="font-semibold">Booked on:</span>{' '}
                 {new Date(booking.booking_date).toLocaleDateString()}
               </p>
+              
+              {/* ADDED: Payment status section */}
+              <div className="mt-4 p-3 bg-yellow-100 rounded-lg">
+                <p className="text-sm">
+                  <span className="font-semibold">Payment Status:</span>{' '}
+                  <span className="text-yellow-700">
+                    {paymentStatus?.payment_status === 'completed' ? 'Completed' : 'Pending'}
+                  </span>
+                </p>
+                {paymentStatus?.payment_status !== 'completed' && (
+                  <button
+                    onClick={() => navigate(`/payment/${booking.id}`)}
+                    className="mt-2 bg-green-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-green-700"
+                  >
+                    Complete Payment
+                  </button>
+                )}
+              </div>
+              
               <button
                 onClick={handleCancelBooking}
-                className="bg-red-500 text-white px-6 py-2 rounded hover:bg-red-600"
+                className="mt-4 bg-red-500 text-white px-6 py-2 rounded hover:bg-red-600"
               >
                 Cancel Booking
               </button>
             </div>
           </div>
         ) : (
-          // Show room selection
+          // Show room selection (YOUR EXISTING CODE - UNCHANGED)
           <div>
             {/* Block Info */}
             {block && (
