@@ -70,7 +70,7 @@ class FloorAdmin(admin.ModelAdmin):
 @admin.register(Room)
 class RoomAdmin(admin.ModelAdmin):
     list_display = ['id', 'room_number', 'floor', 'room_type', 'capacity', 'current_occupancy', 'is_available']
-    list_filter = ['floor__block', 'room_type', 'is_available']
+    list_filter = ['floor__block', 'room_type']
     search_fields = ['room_number']
 
 # ========================

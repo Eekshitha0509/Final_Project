@@ -130,7 +130,6 @@ class Room(models.Model):
     room_type = models.CharField(max_length=20, choices=ROOM_TYPES, default='regular')
     capacity = models.IntegerField(default=4)
     current_occupancy = models.IntegerField(default=0)
-    is_available = models.BooleanField(default=True)
     price_per_semester = models.DecimalField(max_digits=10, decimal_places=2, default=5000)
     label = models.CharField(max_length=100, blank=True, null=True)
     
@@ -147,6 +146,11 @@ class Room(models.Model):
     @property
     def is_full(self):
         return self.current_occupancy >= self.capacity
+    
+    @property
+    def is_available(self):  # ✅ Add this property instead of database field
+        """Room is available if not full"""
+        return self.current_occupancy < self.capacity
 
 
 # ========================
@@ -169,43 +173,29 @@ class Booking(models.Model):
         unique_together = ('student', 'status')
 
     def save(self, *args, **kwargs):
-        # Check if this is a new booking (not an update)
-        is_new = self.pk is None
-        
-        # If this is a new confirmed booking, increase room occupancy
-        if is_new and self.status == 'confirmed':
+        # Only update occupancy for new confirmed bookings
+        if self.pk is None and self.status == 'confirmed':
             print(f"📚 Increasing occupancy for room {self.room.room_number}")
             self.room.current_occupancy += 1
             print(f"   New occupancy: {self.room.current_occupancy}/{self.room.capacity}")
-            
-            # Update room availability
-            if self.room.current_occupancy >= self.room.capacity:
-                self.room.is_available = False
-                print(f"   Room is now FULL")
-            else:
-                self.room.is_available = True
-                
             self.room.save()
         
         super().save(*args, **kwargs)
     
     def delete(self, *args, **kwargs):
-        # When cancelling, decrease occupancy
+        # Update occupancy when cancelling a confirmed booking
         if self.status == 'confirmed':
             print(f"📚 Decreasing occupancy for room {self.room.room_number}")
             self.room.current_occupancy -= 1
+            if self.room.current_occupancy < 0:
+                self.room.current_occupancy = 0
             print(f"   New occupancy: {self.room.current_occupancy}/{self.room.capacity}")
-            
-            if self.room.current_occupancy < self.room.capacity:
-                self.room.is_available = True
-                print(f"   Room is now AVAILABLE")
-                
             self.room.save()
+        
         super().delete(*args, **kwargs)
 
     def __str__(self):
         return f"{self.student.username} - {self.room.room_number}"
-
 
 # ========================
 # PROFILE MODEL (from first config - for backward compatibility)
@@ -267,44 +257,43 @@ class Payment(models.Model):
 
 class Student(models.Model):
     full_name = models.CharField(max_length=100)
-    aadhar = models.CharField(max_length=12)
+    aadhar = models.CharField(max_length=12, blank=True, null=True)  # ✅ Added
     admission_no = models.CharField(max_length=20, unique=True)
     reg_no = models.CharField(max_length=20, null=True, blank=True)
-    class_yr = models.CharField(max_length=10)
-    branch = models.CharField(max_length=50)
-    roll_no = models.CharField(max_length=20)
-    dob = models.DateField()
+    class_yr = models.CharField(max_length=10, blank=True, null=True)  # ✅ Added
+    branch = models.CharField(max_length=50, blank=True, null=True)  # ✅ Added
+    roll_no = models.CharField(max_length=20, blank=True, null=True)  # ✅ Added
+    dob = models.DateField(blank=True, null=True)  # ✅ Already has this
     mobile = models.CharField(max_length=15)
     email = models.EmailField()
-    address = models.TextField()
-    caste = models.CharField(max_length=50)
-    catering = models.CharField(max_length=20)
+    address = models.TextField(blank=True, null=True)  # ✅ Added
+    caste = models.CharField(max_length=50, blank=True, null=True)  # ✅ Added
+    catering = models.CharField(max_length=20, blank=True, null=True)  # ✅ Added
     amount = models.CharField(max_length=10, default="13000")
     student_photo = models.ImageField(upload_to="students/photos/", null=True, blank=True)
     
     # Parents & Guardian
-    father_name = models.CharField(max_length=100)
-    father_phone = models.CharField(max_length=15)
+    father_name = models.CharField(max_length=100, blank=True, null=True)  # ✅ Added
+    father_phone = models.CharField(max_length=15, blank=True, null=True)  # ✅ Added
     father_aadhar = models.FileField(upload_to="parents/father/aadhar/", null=True, blank=True)
     father_photo = models.ImageField(upload_to="parents/father/photos/", null=True, blank=True)
-    mother_name = models.CharField(max_length=100)
-    mother_phone = models.CharField(max_length=15)
+    mother_name = models.CharField(max_length=100, blank=True, null=True)  # ✅ Added
+    mother_phone = models.CharField(max_length=15, blank=True, null=True)  # ✅ Added
     mother_aadhar = models.FileField(upload_to="parents/mother/aadhar/", null=True, blank=True)
     mother_photo = models.ImageField(upload_to="parents/mother/photos/", null=True, blank=True)
-    guardian_name = models.CharField(max_length=100)
-    guardian_phone = models.CharField(max_length=15)
+    guardian_name = models.CharField(max_length=100, blank=True, null=True)  # ✅ Added
+    guardian_phone = models.CharField(max_length=15, blank=True, null=True)  # ✅ Added
     guardian_aadhar = models.FileField(upload_to="guardian/aadhar/", null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
-
     block = models.CharField(max_length=100, blank=True, null=True, default="Not Allotted")
     room_no = models.CharField(max_length=20, blank=True, null=True, default="Not Allotted")
     hostel_name = models.CharField(max_length=100, blank=True, null=True)
 
     def __str__(self):
         return f"{self.full_name} ({self.admission_no})"
-
-
+    
+    
 # ========================
 # STUDENT REGISTRATION MODEL (from second config)
 # ========================

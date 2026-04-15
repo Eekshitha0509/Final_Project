@@ -484,6 +484,9 @@ def book_room(request):
     user = request.user
     room_id = request.data.get('room_id')
     
+    if not room_id:
+        return Response({'error': 'room_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+    
     # Check if student already has an active booking
     if Booking.objects.filter(student=user, status='confirmed').exists():
         return Response({
@@ -491,46 +494,72 @@ def book_room(request):
         }, status=status.HTTP_400_BAD_REQUEST)
     
     try:
-        room = Room.objects.get(id=room_id)
+        # Get student profile first
+        try:
+            profile = StudentProfile.objects.get(user=user)
+            student_year = profile.year
+        except StudentProfile.DoesNotExist:
+            return Response({
+                'error': 'Student profile not found. Please complete your profile first.'
+            }, status=status.HTTP_400_BAD_REQUEST)
         
-        # Check if room is available
-        if not room.is_available:
-            return Response({'error': 'Room is not available'}, status=status.HTTP_400_BAD_REQUEST)
-        
-        if room.is_full:
-            return Response({'error': 'Room is full'}, status=status.HTTP_400_BAD_REQUEST)
-        
-        # Check year restriction
-        profile = StudentProfile.objects.get(user=user)
-        student_year = profile.year
-        block_name = room.floor.block.name
-        
-        if student_year == 1 and block_name != 'orange':
-            return Response({'error': '1st year students can only book Orange Hostel'}, status=status.HTTP_400_BAD_REQUEST)
-        if student_year == 2 and block_name != 'meta':
-            return Response({'error': '2nd year students can only book Meta H Hostel'}, status=status.HTTP_400_BAD_REQUEST)
-        if student_year == 3 and block_name != 'alumini':
-            return Response({'error': '3rd year students can only book Alumini Hostel'}, status=status.HTTP_400_BAD_REQUEST)
-        if student_year == 4 and block_name != 'orange':
-            return Response({'error': '4th year students can only book Orange Hostel'}, status=status.HTTP_400_BAD_REQUEST)
-        
-        # Create booking
-        booking = Booking.objects.create(
-            student=user,
-            room=room,
-            status='confirmed'
-        )
+        # Use atomic transaction with select_for_update from the start
+        with transaction.atomic():
+            # Fetch room with lock - only fetch once
+            room = Room.objects.select_for_update().get(id=room_id)
+            
+            # Check if room is available (using the @property)
+            if not room.is_available:
+                return Response({
+                    'error': f'Room {room.room_number} is not available. Available beds: {room.available_beds}'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Check year restriction
+            block_name = room.floor.block.name
+            
+            if student_year == 1 and block_name != 'orange':
+                return Response({'error': '1st year students can only book Orange Hostel'}, status=status.HTTP_400_BAD_REQUEST)
+            if student_year == 2 and block_name != 'meta':
+                return Response({'error': '2nd year students can only book Meta H Hostel'}, status=status.HTTP_400_BAD_REQUEST)
+            if student_year == 3 and block_name != 'alumini':
+                return Response({'error': '3rd year students can only book Alumini Hostel'}, status=status.HTTP_400_BAD_REQUEST)
+            if student_year == 4 and block_name != 'orange':
+                return Response({'error': '4th year students can only book Orange Hostel'}, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Double-check occupancy (redundant but safe)
+            if room.current_occupancy >= room.capacity:
+                return Response({
+                    'error': 'Room became full. Please try another room.'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Increase occupancy by 1
+            room.current_occupancy += 1
+            room.save()
+            
+            # Create booking
+            booking = Booking.objects.create(
+                student=user,
+                room=room,
+                status='confirmed'
+            )
         
         serializer = BookingSerializer(booking)
         return Response({
             'message': 'Room booked successfully!',
-            'booking': serializer.data
+            'booking': serializer.data,
+            'room_occupancy': room.current_occupancy,
+            'available_beds': room.available_beds,
+            'room_number': room.room_number
         }, status=status.HTTP_201_CREATED)
         
     except Room.DoesNotExist:
         return Response({'error': 'Room not found'}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
+        print(f"Booking error: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+    
 
 
 @api_view(['GET'])
@@ -546,18 +575,25 @@ def get_student_booking(request):
         return Response({'message': 'No active booking'}, status=status.HTTP_404_NOT_FOUND)
 
 
-@api_view(['POST'])
+@api_view(['POST']) 
 @permission_classes([IsAuthenticated])
 def cancel_booking(request, booking_id):
     """Cancel a booking and update room occupancy"""
     try:
         booking = Booking.objects.get(id=booking_id, student=request.user, status='confirmed')
         
-        # Store room info before deletion
-        room = booking.room
-        
-        # Delete the booking (this will trigger the delete method)
-        booking.delete()
+        with transaction.atomic():
+            # Re-fetch room with lock
+            room = Room.objects.select_for_update().get(id=booking.room.id)
+            
+            # Decrease occupancy
+            room.current_occupancy -= 1
+            if room.current_occupancy < 0:
+                room.current_occupancy = 0
+            room.save()
+            
+            # Delete the booking
+            booking.delete()
         
         return Response({
             'message': 'Booking cancelled successfully',
@@ -567,7 +603,6 @@ def cancel_booking(request, booking_id):
         
     except Booking.DoesNotExist:
         return Response({'error': 'Booking not found'}, status=status.HTTP_404_NOT_FOUND)
-
 
 # ==================== RAZORPAY PAYMENT VIEWS ====================
 
