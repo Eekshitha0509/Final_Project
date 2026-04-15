@@ -6,10 +6,11 @@ import axios from 'axios';
 function StudentLog() {
   const navigate = useNavigate();
   const [formData, setFormData] = useState({
-    username: '',
+    login_id: '',
     password: ''
   });
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
   const handleChange = (e) => {
     setFormData({
@@ -21,28 +22,82 @@ function StudentLog() {
   const handleLogin = async (e) => {
     e.preventDefault();
     setError('');
+    setLoading(true);
+
+    if (!formData.login_id.trim()) {
+      setError('Please enter your admission number');
+      setLoading(false);
+      return;
+    }
+
+    if (!formData.password.trim()) {
+      setError('Please enter your password');
+      setLoading(false);
+      return;
+    }
 
     try {
-      const response = await axios.post('http://127.0.0.1:8000/api/login/', {
-        username: formData.username,
+      const loginData = {
+        admission_number: formData.login_id.trim(),
         password: formData.password
+      };
+      
+      console.log('Sending login data:', loginData);
+      
+      const response = await axios.post('http://127.0.0.1:8000/hostel/login/', loginData, {
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        withCredentials: true
       });
       
-      localStorage.setItem('access', response.data.access);
-      localStorage.setItem('refresh', response.data.refresh);
-      localStorage.setItem('user', JSON.stringify(response.data.user));
+      console.log('Login response:', response.data);
       
-      console.log('Login successful for user:', response.data.user.username);
-      
-      navigate('/profile');
+      if (response.data.success) {
+        const userData = response.data.user;
+        
+        // Store user data
+        localStorage.setItem('isLoggedIn', 'true');
+        localStorage.setItem('user', JSON.stringify(userData));
+        localStorage.setItem('student_name', userData.full_name);
+        localStorage.setItem('admission_no', userData.admission_number);
+        localStorage.setItem('reg_no', userData.admission_number);
+        localStorage.setItem('email', userData.email);
+        localStorage.setItem('phone', userData.phone_number || '');
+        localStorage.setItem('student', 'true');
+        localStorage.setItem('access', response.data.access);
+        localStorage.setItem('refresh', response.data.refresh);
+        localStorage.setItem('access_token', response.data.access);
+        localStorage.setItem('refresh_token', response.data.refresh);
+        
+        console.log('Login successful! Redirecting to profile...');
+        navigate('/profile');
+      } else {
+        setError(response.data.error || 'Login failed');
+      }
       
     } catch (error) {
-      console.error('Login failed:', error);
+      console.error('Login error:', error);
+      
       if (error.response) {
-        setError(error.response.data.error || 'Invalid username or password');
+        console.error('Error data:', error.response.data);
+        console.error('Error status:', error.response.status);
+        
+        if (error.response.status === 401) {
+          setError('Invalid admission number or password');
+        } else if (error.response.data?.error) {
+          setError(error.response.data.error);
+        } else {
+          setError('Login failed. Please try again.');
+        }
+      } else if (error.request) {
+        setError('Cannot connect to server. Please check if backend is running.');
       } else {
-        setError('Network error. Please try again.');
+        setError('An error occurred. Please try again.');
       }
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -64,14 +119,14 @@ function StudentLog() {
 
         <div className="flex flex-col gap-1">
           <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-            Username
+            Admission Number *
           </label>
           <input 
             type="text" 
-            name="username"
-            value={formData.username}
+            name="login_id"
+            value={formData.login_id}
             onChange={handleChange}
-            placeholder="Enter your username" 
+            placeholder="Enter your admission number" 
             required
             className="w-full px-4 py-2 rounded-lg bg-slate-50 border border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none transition-all"
           />
@@ -94,10 +149,22 @@ function StudentLog() {
 
         <button 
           type="submit"
-          className="w-full bg-[#002147] hover:bg-[#003366] text-white font-bold py-3 px-4 rounded-lg border-b-4 border-yellow-500 active:border-b-0 transition-all uppercase tracking-widest mt-2"
+          disabled={loading}
+          className={`w-full bg-[#002147] hover:bg-[#003366] text-white font-bold py-3 px-4 rounded-lg border-b-4 border-yellow-500 active:border-b-0 transition-all uppercase tracking-widest mt-2 ${loading ? 'opacity-70 cursor-not-allowed' : ''}`}
         >
-          Login to Portal
+          {loading ? 'Logging in...' : 'Login to Portal'}
         </button>
+
+        <div className="text-center">
+          <p className="text-sm">
+            <span 
+              onClick={() => navigate('/forgot-password')}
+              className="text-blue-600 font-bold cursor-pointer hover:underline"
+            >
+              Forgot Password?
+            </span>
+          </p>
+        </div>
 
         <p className="text-center text-sm">
           Don't have an account?{' '}

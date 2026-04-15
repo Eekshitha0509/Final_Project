@@ -4,8 +4,15 @@ from django.contrib.auth.models import User
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.contrib.auth.hashers import make_password, check_password
+import uuid
+from django.utils import timezone
+from datetime import timedelta
+from django.contrib.auth import get_user_model
 
-# Keep HostelApplication as is
+# ========================
+# HOSTEL APPLICATION MODEL (from first config)
+# ========================
+
 class HostelApplication(models.Model):
     full_name = models.CharField(max_length=255)
     aadhar = models.CharField(max_length=20)
@@ -25,7 +32,10 @@ class HostelApplication(models.Model):
         return f"{self.full_name} - {self.roll_no}"
 
 
-# NEW: StudentProfile using Django User
+# ========================
+# STUDENT PROFILE MODEL (from first config)
+# ========================
+
 class StudentProfile(models.Model):
     YEAR_CHOICES = (
         (1, '1st Year'),
@@ -35,9 +45,9 @@ class StudentProfile(models.Model):
     )
     
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='student_profile')
-    admission = models.CharField(max_length=50, unique=True, null=True, blank=True)  # Made nullable temporarily
-    year = models.IntegerField(choices=YEAR_CHOICES, null=True, blank=True)  # Made nullable temporarily
-    branch = models.CharField(max_length=100, null=True, blank=True)  # Made nullable temporarily
+    admission = models.CharField(max_length=50, unique=True, null=True, blank=True)
+    year = models.IntegerField(choices=YEAR_CHOICES, null=True, blank=True)
+    branch = models.CharField(max_length=100, null=True, blank=True)
     phone_number = models.CharField(max_length=15, blank=True, null=True)
     address = models.TextField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -46,7 +56,7 @@ class StudentProfile(models.Model):
         return f"{self.user.get_full_name()} - {self.admission if self.admission else 'No Admission'}"
 
 
-# Auto-create profile when user is created - FIXED VERSION
+# Auto-create profile when user is created
 @receiver(post_save, sender=User)
 def create_student_profile(sender, instance, created, **kwargs):
     if created:
@@ -60,7 +70,10 @@ def save_student_profile(sender, instance, **kwargs):
         instance.student_profile.save()
 
 
-# Block model (unchanged)
+# ========================
+# BLOCK MODEL (from first config)
+# ========================
+
 class Block(models.Model):
     BLOCK_CHOICES = (
         ('orange', 'Orange Hostel'),
@@ -84,7 +97,10 @@ class Block(models.Model):
         return self.display_name
 
 
-# Floor model (unchanged)
+# ========================
+# FLOOR MODEL (from first config)
+# ========================
+
 class Floor(models.Model):
     block = models.ForeignKey(Block, on_delete=models.CASCADE, related_name='floors')
     floor_number = models.IntegerField()
@@ -97,7 +113,10 @@ class Floor(models.Model):
         return f"{self.block.display_name} - Floor {self.floor_number}"
 
 
-# Room model (unchanged)
+# ========================
+# ROOM MODEL (from first config)
+# ========================
+
 class Room(models.Model):
     ROOM_TYPES = (
         ('regular', 'Regular Room'),
@@ -130,7 +149,10 @@ class Room(models.Model):
         return self.current_occupancy >= self.capacity
 
 
-# Booking model (updated to use User instead of Student)
+# ========================
+# BOOKING MODEL (FIXED - with proper occupancy management)
+# ========================
+
 class Booking(models.Model):
     STATUS_CHOICES = (
         ('pending', 'Pending'),
@@ -147,18 +169,48 @@ class Booking(models.Model):
         unique_together = ('student', 'status')
 
     def save(self, *args, **kwargs):
-        if self.status == 'confirmed':
+        # Check if this is a new booking (not an update)
+        is_new = self.pk is None
+        
+        # If this is a new confirmed booking, increase room occupancy
+        if is_new and self.status == 'confirmed':
+            print(f"📚 Increasing occupancy for room {self.room.room_number}")
             self.room.current_occupancy += 1
+            print(f"   New occupancy: {self.room.current_occupancy}/{self.room.capacity}")
+            
+            # Update room availability
             if self.room.current_occupancy >= self.room.capacity:
                 self.room.is_available = False
+                print(f"   Room is now FULL")
+            else:
+                self.room.is_available = True
+                
             self.room.save()
+        
         super().save(*args, **kwargs)
+    
+    def delete(self, *args, **kwargs):
+        # When cancelling, decrease occupancy
+        if self.status == 'confirmed':
+            print(f"📚 Decreasing occupancy for room {self.room.room_number}")
+            self.room.current_occupancy -= 1
+            print(f"   New occupancy: {self.room.current_occupancy}/{self.room.capacity}")
+            
+            if self.room.current_occupancy < self.room.capacity:
+                self.room.is_available = True
+                print(f"   Room is now AVAILABLE")
+                
+            self.room.save()
+        super().delete(*args, **kwargs)
 
     def __str__(self):
         return f"{self.student.username} - {self.room.room_number}"
 
 
-# Keep Profile for backward compatibility (optional)
+# ========================
+# PROFILE MODEL (from first config - for backward compatibility)
+# ========================
+
 class Profile(models.Model):
     student = models.OneToOneField(StudentProfile, on_delete=models.CASCADE, related_name='old_profile', null=True, blank=True)
     phone_number = models.CharField(max_length=15, blank=True)
@@ -176,7 +228,9 @@ class Profile(models.Model):
         verbose_name_plural = "Profiles"
 
 
-        # Add this at the end of your models.py
+# ========================
+# PAYMENT MODEL (from first config)
+# ========================
 
 class Payment(models.Model):
     PAYMENT_STATUS = (
@@ -205,3 +259,133 @@ class Payment(models.Model):
     
     def __str__(self):
         return f"Payment {self.id} - {self.booking.student.username} - ₹{self.amount}"
+
+
+# ========================
+# STUDENT MODEL (from second config)
+# ========================
+
+class Student(models.Model):
+    full_name = models.CharField(max_length=100)
+    aadhar = models.CharField(max_length=12)
+    admission_no = models.CharField(max_length=20, unique=True)
+    reg_no = models.CharField(max_length=20, null=True, blank=True)
+    class_yr = models.CharField(max_length=10)
+    branch = models.CharField(max_length=50)
+    roll_no = models.CharField(max_length=20)
+    dob = models.DateField()
+    mobile = models.CharField(max_length=15)
+    email = models.EmailField()
+    address = models.TextField()
+    caste = models.CharField(max_length=50)
+    catering = models.CharField(max_length=20)
+    amount = models.CharField(max_length=10, default="13000")
+    student_photo = models.ImageField(upload_to="students/photos/", null=True, blank=True)
+    
+    # Parents & Guardian
+    father_name = models.CharField(max_length=100)
+    father_phone = models.CharField(max_length=15)
+    father_aadhar = models.FileField(upload_to="parents/father/aadhar/", null=True, blank=True)
+    father_photo = models.ImageField(upload_to="parents/father/photos/", null=True, blank=True)
+    mother_name = models.CharField(max_length=100)
+    mother_phone = models.CharField(max_length=15)
+    mother_aadhar = models.FileField(upload_to="parents/mother/aadhar/", null=True, blank=True)
+    mother_photo = models.ImageField(upload_to="parents/mother/photos/", null=True, blank=True)
+    guardian_name = models.CharField(max_length=100)
+    guardian_phone = models.CharField(max_length=15)
+    guardian_aadhar = models.FileField(upload_to="guardian/aadhar/", null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    block = models.CharField(max_length=100, blank=True, null=True, default="Not Allotted")
+    room_no = models.CharField(max_length=20, blank=True, null=True, default="Not Allotted")
+    hostel_name = models.CharField(max_length=100, blank=True, null=True)
+
+    def __str__(self):
+        return f"{self.full_name} ({self.admission_no})"
+
+
+# ========================
+# STUDENT REGISTRATION MODEL (from second config)
+# ========================
+
+class StudentRegistration(models.Model):
+    admission_no = models.CharField(max_length=20, unique=True)
+    reg_no = models.CharField(max_length=20, null=True, blank=True, unique=True)
+    full_name = models.CharField(max_length=100)
+    phone = models.CharField(max_length=15, unique=True)
+    email = models.EmailField(unique=True)
+    password = models.CharField(max_length=255) 
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.full_name} ({self.admission_no})"
+
+
+# ========================
+# CERTIFICATE MODEL (from second config)
+# ========================
+
+class Certificate(models.Model):
+    CERTIFICATE_TYPES = [
+        ('resident', 'Resident Certificate'),
+        ('nodues', 'No Dues Certificate'),
+        ('estimation', 'Estimation Slip'),
+    ]
+    admission_no = models.CharField(max_length=20)
+    reg_no = models.CharField(max_length=20, null=True, blank=True)
+    student_name = models.CharField(max_length=100)
+    certificate_type = models.CharField(max_length=20, choices=CERTIFICATE_TYPES)
+    certificate_file = models.FileField(upload_to='certificates/', null=True, blank=True)
+    generated_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.student_name} - {self.certificate_type}"
+
+
+# ========================
+# MESS PAYMENT MODEL (from second config)
+# ========================
+
+class MessPayment(models.Model):
+    receipt_no = models.AutoField(primary_key=True)
+    student_name = models.CharField(max_length=100)
+    roll_no = models.CharField(max_length=20)
+    room_no = models.CharField(max_length=10)
+    class_yr = models.CharField(max_length=20)
+    date = models.DateField()
+    month = models.CharField(max_length=20)
+    amount = models.IntegerField()
+    payment_mode = models.CharField(max_length=20)
+    purpose = models.CharField(max_length=50, default="Mess Payment")
+    razorpay_order_id = models.CharField(max_length=100, null=True, blank=True)
+    razorpay_payment_id = models.CharField(max_length=100, null=True, blank=True)
+    status = models.CharField(max_length=20, default="Pending")
+    created_at = models.DateTimeField(auto_now_add=True, null=True, blank=True)  # ✅ ADD THIS LINE
+
+    def __str__(self):
+        return f"{self.student_name} - {self.month} - {self.status}"
+
+# ========================
+# PASSWORD RESET OTP MODEL (from second config)
+# ========================
+
+UserModel = get_user_model()
+
+class PasswordResetOTP(models.Model):
+    user = models.ForeignKey('StudentRegistration', on_delete=models.CASCADE, related_name='password_reset_otps')
+    otp = models.CharField(max_length=6)
+    reset_token = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        ordering = ['-created_at']
+    
+    def is_valid(self):
+        # OTP is valid for 10 minutes (600 seconds)
+        now = timezone.now()
+        return (now - self.created_at).total_seconds() < 600
+    
+    def __str__(self):
+        return f"OTP for {self.user.email} - {self.otp} - Valid: {self.is_valid()}"
+    

@@ -1,10 +1,12 @@
-// src/pages/RoomBooking.jsx
 import React, { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import axios from "axios";
+import jsPDF from "jspdf";
+import "jspdf-autotable";
 
 const RoomBooking = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const [selectedBlock, setSelectedBlock] = useState(null);
   const [selectedFloor, setSelectedFloor] = useState(null);
   const [rooms, setRooms] = useState([]);
@@ -20,6 +22,63 @@ const RoomBooking = () => {
   const [blocks, setBlocks] = useState([]);
   const [floorData, setFloorData] = useState({});
   const [realRooms, setRealRooms] = useState([]);
+  const [authError, setAuthError] = useState(false);
+
+  // Create authenticated axios instance
+  const authAxios = () => {
+    const token = localStorage.getItem('access_token') || localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
+    
+    const instance = axios.create({
+      baseURL: 'http://127.0.0.1:8000',
+      headers: {
+        'Authorization': token ? `Bearer ${token}` : '',
+        'Content-Type': 'application/json'
+      },
+      timeout: 10000,
+    });
+
+    instance.interceptors.response.use(
+      (response) => response,
+      (error) => {
+        if (error.response?.status === 401) {
+          console.error('Authentication failed.');
+          setAuthError(true);
+          localStorage.removeItem('access_token');
+          localStorage.removeItem('authToken');
+          sessionStorage.removeItem('authToken');
+          setTimeout(() => {
+            navigate('/login/student');
+          }, 2000);
+        }
+        return Promise.reject(error);
+      }
+    );
+
+    return instance;
+  };
+
+  // Refresh rooms function - KEY FOR UPDATING CAPACITY
+  const refreshRoomsForCurrentFloor = async () => {
+    if (selectedBlock && selectedFloor !== null) {
+      console.log('🔄 Refreshing rooms data...');
+      await fetchRoomsForCurrentFloor();
+    }
+  };
+
+  // Check for payment completion on return
+  useEffect(() => {
+    const queryParams = new URLSearchParams(location.search);
+    const fromPayment = queryParams.get('from');
+    const paymentStatus = queryParams.get('payment_status');
+    const paymentSuccess = queryParams.get('payment_success');
+    
+    if ((fromPayment === 'payment' && paymentStatus === 'success') || paymentSuccess === 'true') {
+      console.log('✅ Payment completed, refreshing room data...');
+      refreshRoomsForCurrentFloor();
+      // Clean URL
+      navigate('/room-booking', { replace: true });
+    }
+  }, [location.search]);
 
   // Block data based on your specifications
   const blockData = {
@@ -99,18 +158,26 @@ const RoomBooking = () => {
     },
   };
 
-  // ========== USE EFFECTS ==========
   useEffect(() => {
     const userData = localStorage.getItem("user");
-    if (!userData) {
+    const token = localStorage.getItem('access_token') || localStorage.getItem('authToken');
+    
+    if (!userData || !token) {
+      console.log("No user data or token found, redirecting to login");
       navigate("/login/student");
       return;
     }
-    const parsedUser = JSON.parse(userData);
-    setUser(parsedUser);
-    setUserRestrictions(parsedUser);
-    fetchBlocksFromBackend();
-  }, []);
+    
+    try {
+      const parsedUser = JSON.parse(userData);
+      setUser(parsedUser);
+      setUserRestrictions(parsedUser);
+      fetchBlocksFromBackend();
+    } catch (error) {
+      console.error("Error parsing user data:", error);
+      navigate("/login/student");
+    }
+  }, [navigate]);
 
   // Fetch rooms when floor changes
   useEffect(() => {
@@ -119,56 +186,75 @@ const RoomBooking = () => {
     }
   }, [selectedBlock, selectedFloor]);
 
-  // ========== API FUNCTIONS ==========
   const fetchBlocksFromBackend = async () => {
     try {
-      const token = localStorage.getItem('access');
-      const response = await axios.get('http://127.0.0.1:8000/api/blocks/', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      setBlocks(response.data);
+      const api = authAxios();
+      const response = await api.get('/hostel/blocks/');
+      console.log("✅ Blocks loaded from backend:", response.data);
+      
+      const transformedBlocks = response.data.map(block => ({
+        id: block.id,
+        name: block.name,
+        display_name: block.display_name
+      }));
+      
+      setBlocks(transformedBlocks);
     } catch (error) {
       console.error('Error fetching blocks:', error);
+      
+      if (error.response?.status === 401) {
+        setAuthError(true);
+        alert('Your session has expired. Please login again.');
+        navigate('/login/student');
+        return;
+      }
+      
+      console.log("Using fallback block data");
+      setBlocks([
+        { id: 1, name: 'orange', display_name: 'Orange Hostel' },
+        { id: 2, name: 'meta', display_name: 'Meta H Hostel' },
+        { id: 3, name: 'alumini', display_name: 'Alumini Hostel' }
+      ]);
     }
   };
 
   const fetchFloorsForBlock = async (blockId) => {
     try {
       setLoading(true);
-      const token = localStorage.getItem('access');
-      const response = await axios.get(`http://127.0.0.1:8000/api/block/${blockId}/floors/`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const api = authAxios();
+      const response = await api.get(`/hostel/block/${blockId}/floors/`);
       
       const floorsMap = {};
       response.data.floors.forEach(floor => {
         floorsMap[floor.floor_number] = floor;
       });
       setFloorData(floorsMap);
+      console.log("✅ Floors loaded:", floorsMap);
       
     } catch (error) {
       console.error('Error fetching floors:', error);
+      if (error.response?.status === 401) {
+        setAuthError(true);
+        navigate('/login/student');
+      }
     } finally {
       setLoading(false);
     }
   };
 
-  // SIMPLE fetch rooms function
   const fetchRoomsForCurrentFloor = async () => {
     if (!selectedBlock || selectedFloor === null) return;
     
     try {
       setLoading(true);
-      const token = localStorage.getItem('access');
       
-      // Convert floor to number (ground = 0)
       const floorNumber = selectedFloor === 0 ? 0 : selectedFloor;
+      const api = authAxios();
       
-      const response = await axios.get(
-        `http://127.0.0.1:8000/api/block/${selectedBlock}/floor/${floorNumber}/rooms/`,
-        {
-          headers: { Authorization: `Bearer ${token}` }
-        }
+      console.log(`🔄 Fetching rooms for block: ${selectedBlock}, floor: ${floorNumber}`);
+      
+      const response = await api.get(
+        `/hostel/block/${selectedBlock}/floor/${floorNumber}/rooms/`
       );
       
       console.log("✅ Rooms loaded from DB:", response.data);
@@ -176,6 +262,18 @@ const RoomBooking = () => {
       
     } catch (error) {
       console.error("❌ Error loading rooms:", error.response?.data || error.message);
+      
+      if (error.response?.status === 401) {
+        setAuthError(true);
+        navigate('/login/student');
+        return;
+      }
+      
+      // Use local data as fallback
+      console.log("Using local room data as fallback");
+      const floorKey = selectedFloor === 0 ? "ground" : selectedFloor;
+      const localRooms = blockData[selectedBlock]?.floors[floorKey]?.rooms || [];
+      setRealRooms(localRooms);
     } finally {
       setLoading(false);
     }
@@ -242,72 +340,156 @@ const RoomBooking = () => {
     }
   };
 
-  // ========== UPDATED PAYMENT FUNCTION - REDIRECTS TO PAYMENT PAGE ==========
   const handlePayment = async () => {
     setShowPayment(false);
     
     try {
-      const token = localStorage.getItem('access');
-      
-      // Convert floor to number (ground = 0)
       const floorNumber = selectedFloor === 0 ? 0 : selectedFloor;
+      const api = authAxios();
       
       console.log("🔍 Getting rooms for:", selectedBlock, "floor", floorNumber);
       
-      // Get rooms from database
-      const roomsResponse = await axios.get(
-        `http://127.0.0.1:8000/api/block/${selectedBlock}/floor/${floorNumber}/rooms/`,
-        {
-          headers: { Authorization: `Bearer ${token}` }
-        }
-      );
+      let roomsOnFloor = [];
+      try {
+        const roomsResponse = await api.get(
+          `/hostel/block/${selectedBlock}/floor/${floorNumber}/rooms/`
+        );
+        roomsOnFloor = roomsResponse.data;
+        console.log("✅ Database rooms:", roomsOnFloor);
+      } catch (error) {
+        console.log("Error fetching rooms:", error);
+        alert("Unable to fetch room data. Please try again.");
+        return;
+      }
       
-      const roomsOnFloor = roomsResponse.data;
-      console.log("✅ Database rooms:", roomsOnFloor);
-      
-      // Find matching room by room number
       const matchingRoom = roomsOnFloor.find(
-        room => String(room.room_number) === String(selectedRoom.number)
+        room => String(room.room_number || room.number) === String(selectedRoom.number)
       );
       
       if (!matchingRoom) {
-        alert(`❌ Room ${selectedRoom.number} not found in database for ${selectedBlock} floor ${selectedFloor}`);
+        alert(`❌ Room ${selectedRoom.number} not found in database. Please refresh and try again.`);
+        setShowPayment(false);
+        setSelectedRoom(null);
         return;
       }
       
       console.log("✅ Found room with DB ID:", matchingRoom.id);
       
-      // Book the room
-      const bookingResponse = await axios.post(
-        "http://127.0.0.1:8000/api/book-room/",
-        {
+      try {
+        const bookingResponse = await api.post("/hostel/book-room/", {
           room_id: matchingRoom.id,
-        },
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      );
+        });
 
-      console.log("✅ Booking successful:", bookingResponse.data);
-      
-      const bookingData = bookingResponse.data.booking;
-      
-      // 🔴 REDIRECT TO PAYMENT PAGE INSTEAD OF SHOWING MODAL
-      console.log("🔄 Redirecting to payment page for booking ID:", bookingData.id);
-      navigate(`/payment/${bookingData.id}`);
+        console.log("✅ Booking successful:", bookingResponse.data);
+        
+        // REFRESH ROOMS IMMEDIATELY AFTER BOOKING
+        await refreshRoomsForCurrentFloor();
+        
+        const bookingData = bookingResponse.data.booking;
+        
+        if (!bookingData.id || isNaN(bookingData.id)) {
+          throw new Error("Invalid booking ID received");
+        }
+        
+        console.log("🔄 Redirecting to payment page for booking ID:", bookingData.id);
+        navigate(`/payment/${bookingData.id}?from=booking&return_to=room-booking`);
+        
+      } catch (bookingError) {
+        console.error("❌ Booking API error:", bookingError);
+        
+        if (bookingError.response?.status === 401) {
+          alert('Session expired. Please login again.');
+          navigate('/login/student');
+          return;
+        }
+        
+        const errorMsg = bookingError.response?.data?.error || 
+                         bookingError.response?.data?.message || 
+                         "Room booking failed. The room might be already booked or unavailable.";
+        
+        alert(`❌ ${errorMsg}`);
+        setShowPayment(false);
+        setSelectedRoom(null);
+      }
 
     } catch (error) {
       console.error("❌ BOOKING ERROR:", error);
       
-      if (error.response) {
-        alert(`❌ Error ${error.response.status}: ${error.response.data.error || JSON.stringify(error.response.data)}`);
+      if (error.response?.status === 401) {
+        alert('Session expired. Please login again.');
+        navigate('/login/student');
+      } else if (error.response) {
+        alert(`❌ Error ${error.response.status}: ${error.response.data?.error || JSON.stringify(error.response.data)}`);
       } else {
         alert(`❌ Error: ${error.message}`);
       }
+      setShowPayment(false);
+      setSelectedRoom(null);
     }
   };
 
-  // Helper functions
+  const handleBackToDashboard = () => {
+    navigate("/");
+  };
+
+  const downloadBookingPDF = () => {
+    if (!user) {
+      alert("User information not available");
+      return;
+    }
+
+    const doc = new jsPDF();
+    
+    doc.setFontSize(20);
+    doc.setTextColor(0, 51, 102);
+    doc.text("HOSTEL ROOM BOOKING STATUS", 105, 20, { align: "center" });
+    
+    doc.setFontSize(10);
+    doc.setTextColor(100, 100, 100);
+    doc.text(`Generated on: ${new Date().toLocaleString()}`, 105, 30, { align: "center" });
+    
+    doc.line(20, 35, 190, 35);
+    
+    const blockName = selectedBlock ? blockData[selectedBlock]?.name || selectedBlock.toUpperCase() : "Not Selected";
+    const floorDisplay = selectedFloor === 0 ? "Ground Floor" : (selectedFloor ? `Floor ${selectedFloor}` : "Not Selected");
+    const roomDisplay = selectedRoom ? selectedRoom.number : "Not Selected";
+    const roomCapacity = selectedRoom ? `${selectedRoom.capacity} ${selectedRoom.capacity === 10 ? "beds (Hall)" : "sharing"}` : "N/A";
+    const roomPrice = selectedRoom ? `₹${selectedRoom.price}/semester` : "N/A";
+    
+    doc.autoTable({
+      startY: 45,
+      head: [["Detail", "Information"]],
+      body: [
+        ["Student Name", user?.name || user?.full_name || user?.username || "N/A"],
+        ["Year / Program", `${user?.year || "N/A"} Year · ${user?.branch || "CSE"}`],
+        ["Email", user?.email || "N/A"],
+        ["Hostel Block", blockName],
+        ["Floor", floorDisplay],
+        ["Selected Room", roomDisplay],
+        ["Room Capacity", roomCapacity],
+        ["Room Price", roomPrice],
+        ["Booking Status", selectedRoom ? "Pending Payment" : "No Room Selected"],
+        ["Payment Status", "Pending"],
+      ],
+      theme: "striped",
+      headStyles: { fillColor: [41, 128, 185], textColor: 255 },
+      styles: { fontSize: 11, cellPadding: 5 },
+      columnStyles: {
+        0: { fontStyle: "bold", cellWidth: 60 },
+        1: { cellWidth: 100 },
+      },
+    });
+    
+    const finalY = doc.lastAutoTable.finalY || 100;
+    doc.setFontSize(9);
+    doc.setTextColor(150, 150, 150);
+    doc.text("This is a computer-generated booking status report.", 105, finalY + 15, { align: "center" });
+    doc.text("For any queries, contact hostel administration.", 105, finalY + 22, { align: "center" });
+    
+    const fileName = `Hostel_Booking_${user?.username || "Student"}_${new Date().toISOString().split('T')[0]}.pdf`;
+    doc.save(fileName);
+  };
+
   const countRoomsByType = (type) => {
     if (selectedFloor === null || !selectedBlock) return 0;
 
@@ -363,28 +545,48 @@ const RoomBooking = () => {
 
   return (
     <div className="min-h-screen bg-gray-50 p-6">
+      {/* Back to Dashboard Button */}
+      <div className="max-w-7xl mx-auto mb-4">
+        <button
+          onClick={handleBackToDashboard}
+          className="flex items-center gap-2 text-slate-600 hover:text-blue-600 transition-colors group bg-white px-4 py-2 rounded-lg shadow-sm"
+        >
+          <span className="text-xl group-hover:-translate-x-1 transition-transform">←</span>
+          <span className="font-medium">Back to Dashboard</span>
+        </button>
+      </div>
+
       {/* Header */}
       <div className="max-w-7xl mx-auto mb-8">
         <div className="bg-white rounded-xl shadow-lg p-6">
-          <h1 className="text-3xl font-bold text-gray-800 mb-2">
-            Room Booking System
-          </h1>
-          <p className="text-gray-600">
-            Welcome, {user?.name || user?.full_name || user?.username} | Year {user?.year} | {user?.branch}
-          </p>
-          {loading && (
-            <p className="text-blue-600 mt-2">Loading rooms from database...</p>
-          )}
-          {user && (
-            <div className="mt-2 text-sm text-blue-600">
-              {user.year === 1 &&
-                "You can book rooms in Orange Hostel (Ground, 1st, 2nd, 3rd floors only)"}
-              {user.year === 2 && "You can book rooms in Meta H Hostel only"}
-              {user.year === 3 && "You can book rooms in Alumini Hostel only"}
-              {user.year === 4 &&
-                "You can book rooms in Orange Hostel (4th and 5th floors only)"}
+          <div className="flex justify-between items-start">
+            <div>
+              <h1 className="text-3xl font-bold text-gray-800 mb-2">
+                Room Booking System
+              </h1>
+              <p className="text-gray-600">
+                Welcome, {user?.name || user?.full_name || user?.username} | Year {user?.year} | {user?.branch}
+              </p>
+              {authError && (
+                <div className="mt-2 p-3 bg-red-100 text-red-700 rounded-lg">
+                  ⚠️ Authentication error. Please login again.
+                </div>
+              )}
+              {loading && (
+                <p className="text-blue-600 mt-2">Loading rooms from database...</p>
+              )}
+              {user && (
+                <div className="mt-2 text-sm text-blue-600">
+                  {user.year === 1 &&
+                    "You can book rooms in Orange Hostel (Ground, 1st, 2nd, 3rd floors only)"}
+                  {user.year === 2 && "You can book rooms in Meta H Hostel only"}
+                  {user.year === 3 && "You can book rooms in Alumini Hostel only"}
+                  {user.year === 4 &&
+                    "You can book rooms in Orange Hostel (4th and 5th floors only)"}
+                </div>
+              )}
             </div>
-          )}
+          </div>
         </div>
       </div>
 
@@ -820,7 +1022,7 @@ const RoomBooking = () => {
   );
 };
 
-// ========== ROOM GENERATION FUNCTIONS ==========
+// ========== ROOM GENERATION FUNCTIONS (Keep as is) ==========
 function generateOrangeGroundFloor() {
   const rooms = [];
   for (let i = 1; i <= 7; i++) {
@@ -920,7 +1122,7 @@ function generateOrangeFourthFloor() {
       capacity: capacities[i] || 4,
       available_beds: capacities[i] || 4,
       type: "regular",
-      price: 10000,
+      price: 13000,
       id: `orange-4-${i}`,
     });
   }
@@ -944,7 +1146,7 @@ function generateOrangeFifthFloor() {
       capacity: capacities[i] || 4,
       available_beds: capacities[i] || 4,
       type: "regular",
-      price: 10000,
+      price: 13000,
       id: `orange-5-${i}`,
     });
   }

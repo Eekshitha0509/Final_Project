@@ -13,6 +13,7 @@ function Register() {
     admission: "",
     year: "",
     branch: "",
+    phone: "",
     password: "",
     password2: ""
   });
@@ -38,17 +39,25 @@ function Register() {
       return;
     }
 
-    // Prepare data for backend
+    // Check phone number
+    if (!formData.phone || formData.phone.trim() === '') {
+      setError("Phone number is required!");
+      setLoading(false);
+      return;
+    }
+
+    // Prepare data for backend - MATCHING YOUR SERIALIZER
     const submitData = {
       username: formData.username,
+      email: formData.email,
+      password: formData.password,
+      password2: formData.password2,
       first_name: formData.first_name,
       last_name: formData.last_name,
-      email: formData.email,
-      admission: formData.admission,
-      year: parseInt(formData.year),
-      branch: formData.branch,
-      password: formData.password,
-      password2: formData.password2
+      admission: formData.admission,  // ✅ Changed from admission_no to admission
+      phone: formData.phone,
+      year: parseInt(formData.year) || 1,  // Convert to integer
+      branch: formData.branch
     };
 
     console.log("Sending registration data:", submitData);
@@ -58,22 +67,25 @@ function Register() {
       
       console.log("Registration response:", response.data);
       
-      alert("Registration successful! Please login.");
-      navigate('/login/student');
+      if (response.data.success) {
+        alert("Registration successful! Please login.");
+        navigate('/login/student');
+      } else {
+        setError(JSON.stringify(response.data.errors) || "Registration failed");
+      }
       
     } catch (error) {
       console.error("Registration failed:", error);
       console.error("Error response:", error.response?.data);
       
       if (error.response?.data?.errors) {
-        // Show validation errors
         const errors = error.response.data.errors;
-        const errorMessages = Object.keys(errors).map(key => 
-          `${key}: ${errors[key].join ? errors[key].join(', ') : errors[key]}`
-        ).join('\n');
+        const errorMessages = Object.keys(errors).map(key => `${key}: ${errors[key]}`).join('\n');
         setError(errorMessages);
-      } else if (error.response?.data?.error) {
-        setError(error.response.data.error);
+      } else if (error.response?.data?.message) {
+        setError(error.response.data.message);
+      } else if (error.response?.status === 500) {
+        setError("Phone number already exists. Please use a different phone number.");
       } else {
         setError("Registration failed. Please try again.");
       }
@@ -172,6 +184,22 @@ function Register() {
             name="admission"
             placeholder="Enter admission number"
             value={formData.admission}
+            onChange={handleChange}
+            required
+            className="w-full px-4 py-2 rounded-lg bg-slate-50 border border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none transition-all"
+          />
+        </div>
+
+        {/* Phone Number */}
+        <div className="flex flex-col gap-1">
+          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+            Phone Number *
+          </label>
+          <input
+            type="tel"
+            name="phone"
+            placeholder="Enter your phone number"
+            value={formData.phone}
             onChange={handleChange}
             required
             className="w-full px-4 py-2 rounded-lg bg-slate-50 border border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none transition-all"
