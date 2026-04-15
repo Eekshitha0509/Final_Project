@@ -80,84 +80,6 @@ const RoomBooking = () => {
     }
   }, [location.search]);
 
-  // Block data based on your specifications
-  const blockData = {
-    orange: {
-      name: "Orange Hostel",
-      color: "bg-orange-500",
-      floors: {
-        ground: {
-          number: 0,
-          students: "1st Year",
-          rooms: generateOrangeGroundFloor(),
-        },
-        1: {
-          number: 1,
-          students: "1st Year",
-          rooms: generateOrangeFirstFloor(),
-        },
-        2: {
-          number: 2,
-          students: "1st Year",
-          rooms: generateOrangeSecondFloor(),
-        },
-        3: {
-          number: 3,
-          students: "1st Year",
-          rooms: generateOrangeThirdFloor(),
-        },
-        4: {
-          number: 4,
-          students: "4th Year",
-          rooms: generateOrangeFourthFloor(),
-        },
-        5: {
-          number: 5,
-          students: "4th Year",
-          rooms: generateOrangeFifthFloor(),
-        },
-      },
-    },
-    meta: {
-      name: "Meta H Hostel",
-      color: "bg-blue-500",
-      floors: {
-        ground: {
-          number: 0,
-          students: "2nd Year",
-          rooms: generateMetaGroundFloor(),
-        },
-        1: { number: 1, students: "2nd Year", rooms: generateMetaFirstFloor() },
-        2: {
-          number: 2,
-          students: "2nd Year",
-          rooms: generateMetaSecondFloor(),
-        },
-      },
-    },
-    alumini: {
-      name: "Alumini Hostel",
-      color: "bg-green-500",
-      floors: {
-        ground: {
-          number: 0,
-          students: "3rd Year",
-          rooms: generateAluminiGroundFloor(),
-        },
-        1: {
-          number: 1,
-          students: "3rd Year",
-          rooms: generateAluminiFirstFloor(),
-        },
-        2: {
-          number: 2,
-          students: "3rd Year",
-          rooms: generateAluminiSecondFloor(),
-        },
-      },
-    },
-  };
-
   useEffect(() => {
     const userData = localStorage.getItem("user");
     const token = localStorage.getItem('access_token') || localStorage.getItem('authToken');
@@ -269,11 +191,8 @@ const RoomBooking = () => {
         return;
       }
       
-      // Use local data as fallback
-      console.log("Using local room data as fallback");
-      const floorKey = selectedFloor === 0 ? "ground" : selectedFloor;
-      const localRooms = blockData[selectedBlock]?.floors[floorKey]?.rooms || [];
-      setRealRooms(localRooms);
+      // Clear rooms on error
+      setRealRooms([]);
     } finally {
       setLoading(false);
     }
@@ -325,6 +244,7 @@ const RoomBooking = () => {
     setSelectedRoom(null);
     setRoomFilter(null);
     setWingFilter(null);
+    setRealRooms([]); // Clear rooms when changing block
     
     const blockId = getBlockIdFromName(block);
     if (blockId) {
@@ -335,7 +255,14 @@ const RoomBooking = () => {
   const handleRoomSelect = (room) => {
     if (room.available_beds > 0) {
       console.log("Selected room:", room);
-      setSelectedRoom(room);
+      setSelectedRoom({
+        number: room.room_number,
+        capacity: room.capacity,
+        available_beds: room.available_beds,
+        type: room.room_type,
+        price: room.price_per_semester,
+        id: room.id
+      });
       setShowPayment(true);
     }
   };
@@ -363,7 +290,7 @@ const RoomBooking = () => {
       }
       
       const matchingRoom = roomsOnFloor.find(
-        room => String(room.room_number || room.number) === String(selectedRoom.number)
+        room => String(room.room_number) === String(selectedRoom.number)
       );
       
       if (!matchingRoom) {
@@ -450,7 +377,7 @@ const RoomBooking = () => {
     
     doc.line(20, 35, 190, 35);
     
-    const blockName = selectedBlock ? blockData[selectedBlock]?.name || selectedBlock.toUpperCase() : "Not Selected";
+    const blockName = selectedBlock ? selectedBlock.toUpperCase() : "Not Selected";
     const floorDisplay = selectedFloor === 0 ? "Ground Floor" : (selectedFloor ? `Floor ${selectedFloor}` : "Not Selected");
     const roomDisplay = selectedRoom ? selectedRoom.number : "Not Selected";
     const roomCapacity = selectedRoom ? `${selectedRoom.capacity} ${selectedRoom.capacity === 10 ? "beds (Hall)" : "sharing"}` : "N/A";
@@ -490,34 +417,28 @@ const RoomBooking = () => {
     doc.save(fileName);
   };
 
+  // Filter functions using realRooms from database
   const countRoomsByType = (type) => {
     if (selectedFloor === null || !selectedBlock) return 0;
-
-    const floorKey = selectedFloor === 0 ? "ground" : selectedFloor;
-    const currentFloorRooms =
-      blockData[selectedBlock]?.floors[floorKey]?.rooms || [];
-
+    
     if (type === "available") {
-      return currentFloorRooms.filter(
-        (room) => room.type === "regular" && room.available_beds > 0,
+      return realRooms.filter(
+        (room) => room.room_type === "regular" && room.available_beds > 0,
       ).length;
     } else if (type === "full") {
-      return currentFloorRooms.filter(
-        (room) => room.type === "regular" && room.available_beds === 0,
+      return realRooms.filter(
+        (room) => room.room_type === "regular" && room.available_beds === 0,
       ).length;
     } else {
-      return currentFloorRooms.filter((room) => room.type === type).length;
+      return realRooms.filter((room) => room.room_type === type).length;
     }
   };
 
   const countRoomsByWing = (wing) => {
     if (selectedFloor === null || !selectedBlock) return 0;
-
-    const floorKey = selectedFloor === 0 ? "ground" : selectedFloor;
-    const currentFloorRooms =
-      blockData[selectedBlock]?.floors[floorKey]?.rooms || [];
-    const regularRooms = currentFloorRooms.filter(
-      (room) => room.type === "regular",
+    
+    const regularRooms = realRooms.filter(
+      (room) => room.room_type === "regular",
     );
 
     if (wing === "left") {
@@ -527,9 +448,8 @@ const RoomBooking = () => {
     }
   };
 
-  const isFloorAccessible = (block, floorKey) => {
+  const isFloorAccessible = (block, floorNum) => {
     const userYear = user?.year;
-    const floorNum = floorKey === "ground" ? 0 : parseInt(floorKey);
 
     if (userYear === 1 && block === "orange") {
       return [0, 1, 2, 3].includes(floorNum);
@@ -541,6 +461,13 @@ const RoomBooking = () => {
       return [4, 5].includes(floorNum);
     }
     return false;
+  };
+
+  // Get available floors for current block from backend data
+  const getAvailableFloors = () => {
+    if (!selectedBlock || !floorData) return [];
+    const floors = Object.keys(floorData).map(Number);
+    return floors.filter(floorNum => isFloorAccessible(selectedBlock, floorNum)).sort((a, b) => a - b);
   };
 
   return (
@@ -643,36 +570,28 @@ const RoomBooking = () => {
           {/* Floor Tabs */}
           <div className="bg-white rounded-t-xl shadow-lg p-4">
             <div className="flex gap-2 overflow-x-auto">
-              {Object.keys(blockData[selectedBlock].floors)
-                .filter((floorKey) =>
-                  isFloorAccessible(selectedBlock, floorKey),
-                )
-                .sort((a, b) => {
-                  if (a === "ground") return -1;
-                  if (b === "ground") return 1;
-                  return parseInt(a) - parseInt(b);
-                })
-                .map((floorKey) => {
-                  const floor = blockData[selectedBlock].floors[floorKey];
-                  return (
-                    <button
-                      key={floorKey}
-                      onClick={() => setSelectedFloor(floor.number)}
-                      className={`px-4 py-2 rounded-lg whitespace-nowrap ${
-                        selectedFloor === floor.number
-                          ? `${blockData[selectedBlock].color} text-white`
-                          : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                      }`}
-                    >
-                      {floor.number === 0
-                        ? "Ground Floor"
-                        : `Floor ${floor.number}`}
-                      <span className="ml-2 text-xs opacity-75">
-                        ({floor.students})
-                      </span>
-                    </button>
-                  );
-                })}
+              {getAvailableFloors().map((floorNum) => {
+                const isActive = selectedFloor === floorNum;
+                const getBlockColor = () => {
+                  if (selectedBlock === "orange") return "bg-orange-500";
+                  if (selectedBlock === "meta") return "bg-blue-500";
+                  if (selectedBlock === "alumini") return "bg-green-500";
+                  return "bg-gray-500";
+                };
+                return (
+                  <button
+                    key={floorNum}
+                    onClick={() => setSelectedFloor(floorNum)}
+                    className={`px-4 py-2 rounded-lg whitespace-nowrap ${
+                      isActive
+                        ? `${getBlockColor()} text-white`
+                        : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                    }`}
+                  >
+                    {floorNum === 0 ? "Ground Floor" : `Floor ${floorNum}`}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
@@ -689,124 +608,113 @@ const RoomBooking = () => {
                 <div className="w-full h-2 bg-gradient-to-r from-transparent via-gray-400 to-transparent"></div>
               </div>
 
-              {/* Room Grid */}
+              {/* Room Grid - USING REAL ROOMS FROM DATABASE */}
               <div className="grid grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-3 mb-8">
-                {blockData[selectedBlock].floors[
-                  selectedFloor === 0 ? "ground" : selectedFloor
-                ]?.rooms
-                  .filter((room) => {
-                    if (roomFilter === "available") {
-                      return room.type === "regular" && room.available_beds > 0;
-                    } else if (roomFilter === "full") {
+                {realRooms.length > 0 ? (
+                  realRooms
+                    .filter((room) => {
+                      if (roomFilter === "available") {
+                        return room.room_type === "regular" && room.available_beds > 0;
+                      } else if (roomFilter === "full") {
+                        return room.room_type === "regular" && room.available_beds === 0;
+                      } else if (roomFilter) {
+                        return room.room_type === roomFilter;
+                      }
+                      return true;
+                    })
+                    .filter((room, index, array) => {
+                      if (wingFilter && room.room_type !== "regular") return true;
+                      const regularRooms = array.filter((r) => r.room_type === "regular");
+                      if (wingFilter === "left") {
+                        return index < Math.floor(regularRooms.length / 2);
+                      } else if (wingFilter === "right") {
+                        return index >= Math.floor(regularRooms.length / 2);
+                      }
+                      return true;
+                    })
+                    .map((room, index) => {
+                      const isAvailable = room.room_type === "regular" ? room.available_beds > 0 : false;
+                      const isSelected = selectedRoom?.number === room.room_number;
+
+                      const getRoomStyle = () => {
+                        if (room.room_type === "washroom") return "bg-gray-200 border-gray-300";
+                        if (room.room_type === "office") return "bg-purple-100 border-purple-300";
+                        if (room.room_type === "common") return "bg-yellow-100 border-yellow-300";
+                        if (isAvailable) return "bg-green-100 border-green-500 hover:scale-105 hover:shadow-lg cursor-pointer";
+                        return "bg-red-100 border-red-500 opacity-50 cursor-not-allowed";
+                      };
+
                       return (
-                        room.type === "regular" && room.available_beds === 0
-                      );
-                    } else if (roomFilter) {
-                      return room.type === roomFilter;
-                    }
-                    return true;
-                  })
-                  .filter((room, index, array) => {
-                    if (wingFilter && room.type !== "regular") return true;
-
-                    const regularRooms = array.filter(
-                      (r) => r.type === "regular",
-                    );
-                    if (wingFilter === "left") {
-                      return index < Math.floor(regularRooms.length / 2);
-                    } else if (wingFilter === "right") {
-                      return index >= Math.floor(regularRooms.length / 2);
-                    }
-                    return true;
-                  })
-                  .map((room, index) => {
-                    const isAvailable =
-                      room.type === "regular" ? room.available_beds > 0 : false;
-                    const isSelected = selectedRoom?.number === room.number;
-
-                    return (
-                      <button
-                        key={index}
-                        onClick={() => isAvailable && handleRoomSelect(room)}
-                        disabled={!isAvailable}
-                        className={`
-                          relative p-3 rounded-lg border-2 transition-all
-                          ${
-                            isAvailable
-                              ? "hover:scale-105 hover:shadow-lg cursor-pointer"
-                              : room.type !== "regular"
-                                ? "cursor-default"
-                                : "opacity-50 cursor-not-allowed"
-                          }
-                          ${
-                            room.type === "washroom"
-                              ? "bg-gray-200 border-gray-300"
-                              : room.type === "office"
-                                ? "bg-purple-100 border-purple-300"
-                                : room.type === "common"
-                                  ? "bg-yellow-100 border-yellow-300"
-                                  : isAvailable
-                                    ? "bg-green-100 border-green-500"
-                                    : "bg-red-100 border-red-500"
-                          }
-                          ${isSelected ? "ring-4 ring-blue-500 scale-105" : ""}
-                        `}
-                      >
-                        <div className="text-sm font-bold mb-1">
-                          {room.number}
-                        </div>
-
-                        <div className="text-2xl mb-1">
-                          {room.type === "washroom"
-                            ? "🚻"
-                            : room.type === "office"
-                              ? "📋"
-                              : room.type === "common"
-                                ? "🛏️"
-                                : "🛏️"}
-                        </div>
-
-                        {room.type === "regular" && (
-                          <>
-                            <div className="text-xs text-gray-600">
-                              {room.capacity}{" "}
-                              {room.capacity === 10 ? "beds (Hall)" : "beds"}
-                            </div>
-                            <div className="mt-1">
-                              <span className="text-xs font-semibold">
-                                {room.available_beds} available
-                              </span>
-                            </div>
-                          </>
-                        )}
-
-                        {room.type !== "regular" && (
-                          <div className="text-xs text-gray-600">
-                            {room.type === "washroom"
-                              ? "Washroom"
-                              : room.type === "office"
-                                ? room.label || "Office"
-                                : room.type === "common"
-                                  ? "Common Area"
-                                  : ""}
+                        <button
+                          key={room.id || index}
+                          onClick={() => isAvailable && handleRoomSelect(room)}
+                          disabled={!isAvailable}
+                          className={`
+                            relative p-3 rounded-lg border-2 transition-all
+                            ${getRoomStyle()}
+                            ${isSelected ? "ring-4 ring-blue-500 scale-105" : ""}
+                          `}
+                        >
+                          <div className="text-sm font-bold mb-1">
+                            {room.room_number}
                           </div>
-                        )}
 
-                        {room.type === "regular" &&
-                          room.available_beds === 0 && (
+                          <div className="text-2xl mb-1">
+                            {room.room_type === "washroom"
+                              ? "🚻"
+                              : room.room_type === "office"
+                                ? "📋"
+                                : room.room_type === "common"
+                                  ? "🛏️"
+                                  : "🛏️"}
+                          </div>
+
+                          {room.room_type === "regular" && (
+                            <>
+                              <div className="text-xs text-gray-600">
+                                {room.capacity} {room.capacity === 10 ? "beds (Hall)" : "beds"}
+                              </div>
+                              <div className="mt-1">
+                                <span className="text-xs font-semibold">
+                                  {room.available_beds} available
+                                </span>
+                              </div>
+                            </>
+                          )}
+
+                          {room.room_type !== "regular" && (
+                            <div className="text-xs text-gray-600">
+                              {room.room_type === "washroom"
+                                ? "Washroom"
+                                : room.room_type === "office"
+                                  ? room.label || "Office"
+                                  : room.room_type === "common"
+                                    ? "Common Area"
+                                    : ""}
+                            </div>
+                          )}
+
+                          {room.room_type === "regular" && room.available_beds === 0 && (
                             <div className="absolute top-0 right-0 bg-red-500 text-white text-xs px-1 rounded-bl">
                               FULL
                             </div>
                           )}
-                      </button>
-                    );
-                  })}
+                        </button>
+                      );
+                    })
+                ) : (
+                  <div className="col-span-full text-center py-8 text-gray-500">
+                    {loading ? "Loading rooms from database..." : "No rooms available on this floor"}
+                  </div>
+                )}
               </div>
 
               {/* Show real rooms count */}
               {realRooms.length > 0 && (
                 <div className="mb-4 p-2 bg-blue-50 text-xs text-blue-700 rounded">
-                  Database has {realRooms.length} rooms on this floor
+                  📊 {realRooms.filter(r => r.room_type === "regular").length} regular rooms on this floor | 
+                  Available: {realRooms.filter(r => r.room_type === "regular" && r.available_beds > 0).length} | 
+                  Full: {realRooms.filter(r => r.room_type === "regular" && r.available_beds === 0).length}
                 </div>
               )}
 
@@ -978,7 +886,7 @@ const RoomBooking = () => {
             <div className="space-y-3 mb-6">
               <p>
                 <span className="font-semibold">Block:</span>{" "}
-                {blockData[selectedBlock].name}
+                {selectedBlock?.toUpperCase() || "Unknown"}
               </p>
               <p>
                 <span className="font-semibold">Floor:</span>{" "}
@@ -994,6 +902,10 @@ const RoomBooking = () => {
                 {selectedRoom.capacity === 10
                   ? "beds (Common Hall)"
                   : "sharing"}
+              </p>
+              <p>
+                <span className="font-semibold">Available Beds:</span>{" "}
+                {selectedRoom.available_beds}
               </p>
               <p>
                 <span className="font-semibold">Price:</span> ₹
@@ -1021,277 +933,5 @@ const RoomBooking = () => {
     </div>
   );
 };
-
-// ========== ROOM GENERATION FUNCTIONS (Keep as is) ==========
-function generateOrangeGroundFloor() {
-  const rooms = [];
-  for (let i = 1; i <= 7; i++) {
-    rooms.push({
-      number: i,
-      capacity: 2,
-      available_beds: 2,
-      type: "regular",
-      price: 13000,
-      id: `orange-g-${i}`,
-    });
-  }
-  rooms.push({ number: "W1", type: "washroom", id: "orange-g-w1" });
-  rooms.push({ number: "W2", type: "washroom", id: "orange-g-w2" });
-  return rooms;
-}
-
-function generateOrangeFirstFloor() {
-  const rooms = [];
-  const capacities = {
-    8: 2, 15: 2, 18: 2, 20: 2, 21: 2, 23: 2,
-    9: 3, 10: 3, 11: 3, 12: 3, 13: 3, 22: 3,
-    14: 4, 16: 4, 17: 4, 19: 4,
-  };
-
-  for (let i = 8; i <= 23; i++) {
-    rooms.push({
-      number: i,
-      capacity: capacities[i] || 4,
-      available_beds: capacities[i] || 4,
-      type: "regular",
-      price: 13000,
-      id: `orange-1-${i}`,
-    });
-  }
-  rooms.push({ number: "W1", type: "washroom", id: "orange-1-w1" });
-  rooms.push({ number: "W2", type: "washroom", id: "orange-1-w2" });
-  return rooms;
-}
-
-function generateOrangeSecondFloor() {
-  const rooms = [];
-  const capacities = {
-    24: 6, 25: 6, 26: 6, 31: 6,
-    27: 8, 28: 8, 29: 8,
-  };
-
-  for (let i = 24; i <= 31; i++) {
-    rooms.push({
-      number: i,
-      capacity: capacities[i] || 4,
-      available_beds: capacities[i] || 4,
-      type: "regular",
-      price: 13000,
-      id: `orange-2-${i}`,
-    });
-  }
-  rooms.push({ number: "W1", type: "washroom", id: "orange-2-w1" });
-  rooms.push({ number: "W2", type: "washroom", id: "orange-2-w2" });
-  return rooms;
-}
-
-function generateOrangeThirdFloor() {
-  const rooms = [];
-  const capacities = {
-    32: 5, 39: 5,
-    34: 6, 38: 6,
-    33: 8, 36: 8, 37: 8,
-  };
-
-  for (let i = 32; i <= 39; i++) {
-    rooms.push({
-      number: i,
-      capacity: capacities[i] || 4,
-      available_beds: capacities[i] || 4,
-      type: "regular",
-      price: 13000,
-      id: `orange-3-${i}`,
-    });
-  }
-  rooms.push({ number: "W1", type: "washroom", id: "orange-3-w1" });
-  rooms.push({ number: "W2", type: "washroom", id: "orange-3-w2" });
-  return rooms;
-}
-
-function generateOrangeFourthFloor() {
-  const rooms = [];
-  const capacities = {
-    40: 6, 42: 6, 46: 6, 47: 6,
-    41: 8, 44: 8,
-    43: 7, 45: 7,
-  };
-
-  for (let i = 40; i <= 47; i++) {
-    rooms.push({
-      number: i,
-      capacity: capacities[i] || 4,
-      available_beds: capacities[i] || 4,
-      type: "regular",
-      price: 13000,
-      id: `orange-4-${i}`,
-    });
-  }
-  
-  rooms.push({ number: "W1", type: "washroom", id: "orange-4-w1" });
-  rooms.push({ number: "W2", type: "washroom", id: "orange-4-w2" });
-  return rooms;
-}
-
-function generateOrangeFifthFloor() {
-  const rooms = [];
-  const capacities = {
-    48: 6, 49: 6, 50: 6, 52: 6, 54: 6, 55: 6,
-    51: 7,
-    53: 8,
-  };
-
-  for (let i = 48; i <= 55; i++) {
-    rooms.push({
-      number: i,
-      capacity: capacities[i] || 4,
-      available_beds: capacities[i] || 4,
-      type: "regular",
-      price: 13000,
-      id: `orange-5-${i}`,
-    });
-  }
-  
-  rooms.push({ number: "W1", type: "washroom", id: "orange-5-w1" });
-  rooms.push({ number: "W2", type: "washroom", id: "orange-5-w2" });
-  return rooms;
-}
-
-function generateMetaGroundFloor() {
-  const rooms = [];
-  rooms.push({
-    number: 1,
-    type: "office",
-    label: "Office",
-    id: "meta-g-office1",
-  });
-
-  for (let i = 2; i <= 29; i++) {
-    rooms.push({
-      number: i,
-      capacity: 3,
-      available_beds: 3,
-      type: "regular",
-      price: 13000,
-      id: `meta-g-${i}`,
-    });
-  }
-
-  rooms.push({
-    number: 16,
-    type: "office",
-    label: "Staff Room",
-    id: "meta-g-office2",
-  });
-  rooms.push({ number: "W1", type: "washroom", id: "meta-g-w1" });
-  rooms.push({ number: "W2", type: "washroom", id: "meta-g-w2" });
-  return rooms;
-}
-
-function generateMetaFirstFloor() {
-  const rooms = [];
-  for (let i = 30; i <= 59; i++) {
-    rooms.push({
-      number: i,
-      capacity: 3,
-      available_beds: 3,
-      type: "regular",
-      price: 13000,
-      id: `meta-1-${i}`,
-    });
-  }
-  rooms.push({ number: "W1", type: "washroom", id: "meta-1-w1" });
-  rooms.push({ number: "W2", type: "washroom", id: "meta-1-w2" });
-  return rooms;
-}
-
-function generateMetaSecondFloor() {
-  const rooms = [];
-  for (let i = 60; i <= 90; i++) {
-    rooms.push({
-      number: i,
-      capacity: 3,
-      available_beds: 3,
-      type: "regular",
-      price: 13000,
-      id: `meta-2-${i}`,
-    });
-  }
-
-  rooms.push({
-    number: "CH1",
-    capacity: 10,
-    available_beds: 10,
-    type: "regular",
-    price: 13000,
-    label: "Common Hall 1",
-    id: "meta-2-ch1",
-  });
-
-  rooms.push({
-    number: "CH2",
-    capacity: 10,
-    available_beds: 10,
-    type: "regular",
-    price: 13000,
-    label: "Common Hall 2",
-    id: "meta-2-ch2",
-  });
-
-  rooms.push({ number: "W1", type: "washroom", id: "meta-2-w1" });
-  rooms.push({ number: "W2", type: "washroom", id: "meta-2-w2" });
-
-  return rooms;
-}
-
-function generateAluminiGroundFloor() {
-  const rooms = [];
-  for (let i = 1; i <= 108; i++) {
-    rooms.push({
-      number: i,
-      capacity: 4,
-      available_beds: 4,
-      type: "regular",
-      price: 13000,
-      id: `alumini-g-${i}`,
-    });
-  }
-  rooms.push({ number: "W1", type: "washroom", id: "alumini-g-w1" });
-  rooms.push({ number: "W2", type: "washroom", id: "alumini-g-w2" });
-  return rooms;
-}
-
-function generateAluminiFirstFloor() {
-  const rooms = [];
-  for (let i = 109; i <= 214; i++) {
-    rooms.push({
-      number: i,
-      capacity: 4,
-      available_beds: 4,
-      type: "regular",
-      price: 13000,
-      id: `alumini-1-${i}`,
-    });
-  }
-  rooms.push({ number: "W1", type: "washroom", id: "alumini-1-w1" });
-  rooms.push({ number: "W2", type: "washroom", id: "alumini-1-w2" });
-  return rooms;
-}
-
-function generateAluminiSecondFloor() {
-  const rooms = [];
-  for (let i = 301; i <= 318; i++) {
-    rooms.push({
-      number: i,
-      capacity: 4,
-      available_beds: 4,
-      type: "regular",
-      price: 13000,
-      id: `alumini-2-${i}`,
-    });
-  }
-  rooms.push({ number: "W1", type: "washroom", id: "alumini-2-w1" });
-  rooms.push({ number: "W2", type: "washroom", id: "alumini-2-w2" });
-  return rooms;
-}
 
 export default RoomBooking;
