@@ -1,118 +1,177 @@
 import React, { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import axios from "axios";
 
 function Profile() {
   const navigate = useNavigate();
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const location = useLocation();
   
   const degreeMap = {
     1: "B.Tech",
     2: "M.Tech",
     3: "MCA"
   };
-
+  
   const [formData, setFormData] = useState({
     full_name: "",
-    aadhar: "",
-    aadhar_pdf: null,
+    dob: "",
+    aadhar_no: "", 
+    aadhar_pdf: null, 
     student_photo: null,
     admission_no: "",
     reg_no: "",
     roll_no: "",
     degree: "",
     branch: "",
-    class_yr: "",
+    year: "", 
     admission_date: "",
-    dob: "",
+    caste: "",
     mobile: "",
     email: "",
     address: "",
-    caste: "",
-    catering: "",
-    amount: "13000",
     father_name: "",
     father_phone: "",
-    father_aadhar: null,
+    father_aadhar_no: "", 
+    father_aadhar_pdf: null, 
     father_photo: null,
     mother_name: "",
     mother_phone: "",
-    mother_aadhar: null,
+    mother_aadhar_no: "", 
+    mother_aadhar_pdf: null, 
     mother_photo: null,
-    guardian_name: "",
-    guardian_phone: "",
-    guardian_aadhar: null,
+    amount: "13000",
   });
 
   const [preview, setPreview] = useState({
     student: "",
     father: "",
     mother: "",
+    aadhar: "",
+    father_aadhar: "",
+    mother_aadhar: ""
   });
 
-  // Check authentication and load existing profile
+  // =============================
+  // REFETCH LOGIC - FIXED
+  // =============================
   useEffect(() => {
-    const token = localStorage.getItem('access_token') || localStorage.getItem('access');
-    const userData = localStorage.getItem('user');
-    const admission_no = localStorage.getItem('admission_no');
-    
-    if (!token && !userData) {
-      alert('Please login first');
-      navigate('/login/student');
-      return;
-    }
-    
-    // Load existing profile if available
-    const fetchExistingProfile = async () => {
+    const fetchStudent = async () => {
       try {
-        const admissionNo = admission_no || (userData ? JSON.parse(userData).admission_no : null);
+        // FIX: Get data from localStorage with correct keys
+        const admission_no = localStorage.getItem('admission_no');
+        const reg_no = localStorage.getItem('reg_no');
+        const userData = JSON.parse(localStorage.getItem('user') || '{}');
+        const isLoggedIn = localStorage.getItem('isLoggedIn');
         
-        if (!admissionNo) return;
+        console.log('Checking login status:', { admission_no, reg_no, isLoggedIn, userData });
         
-        const response = await axios.get(
-          `http://127.0.0.1:8000/hostel/get-student-profile/?admission_no=${admissionNo}`,
-          {
-            headers: token ? { 'Authorization': `Bearer ${token}` } : {}
-          }
-        );
-        
-        const profileData = response.data;
-        console.log("✅ Loaded existing profile:", profileData);
-        
-        if (profileData.full_name) {
+        // Check if user is logged in
+        if (!isLoggedIn || !admission_no || !reg_no) {
+          console.log('No login data found, redirecting to login');
+          navigate("/studentlog");
+          return;
+        }
+
+        // Try to get from navigation state first (if coming from login)
+        if (location.state?.studentData) {
+          const student = location.state.studentData;
+          console.log('Using data from navigation state:', student);
+          
+          const getImageUrl = (path) => {
+            if (!path) return "";
+            if (path.startsWith("http")) return path;
+            return `http://127.0.0.1:8000${path}`;
+          };
+          
           setFormData(prev => ({
             ...prev,
-            full_name: profileData.full_name || prev.full_name,
-            aadhar: profileData.aadhar || prev.aadhar,
-            class_yr: profileData.class_yr || prev.class_yr,
-            branch: profileData.branch || prev.branch,
-            admission_no: profileData.admission_no || prev.admission_no,
-            reg_no: profileData.reg_no || prev.reg_no,
-            roll_no: profileData.roll_no || prev.roll_no,
-            dob: profileData.dob || prev.dob,
-            mobile: profileData.mobile || prev.mobile,
-            email: profileData.email || prev.email,
-            address: profileData.address || prev.address,
-            caste: profileData.caste || prev.caste,
-            catering: profileData.catering || prev.catering,
-            amount: profileData.amount || prev.amount,
-            father_name: profileData.father_name || prev.father_name,
-            father_phone: profileData.father_phone || prev.father_phone,
-            mother_name: profileData.mother_name || prev.mother_name,
-            mother_phone: profileData.mother_phone || prev.mother_phone,
-            guardian_name: profileData.guardian_name || prev.guardian_name,
-            guardian_phone: profileData.guardian_phone || prev.guardian_phone,
+            full_name: student.full_name || "",
+            admission_no: student.admission_number || admission_no,
+            reg_no: student.admission_number || reg_no,
+            email: student.email || "",
+            mobile: student.phone_number || "",
+            // Don't overwrite other fields if they exist in the response
+            ...student,
+            degree: degreeMap[student.degree] || student.degree || "",
           }));
+          
+          return;
         }
+        
+        // Otherwise fetch from API
+        console.log('Fetching from API with:', { admission_no, reg_no });
+        
+        const response = await axios.get(
+          `http://127.0.0.1:8000/hostel/get-student-profile/`,
+          {
+            params: {
+              admission_no: admission_no,
+              reg_no: reg_no
+            }
+          }
+        );
+
+        const student = response.data;
+        console.log('API Response:', student);
+        
+        if (!student) {
+          console.log('No student data received');
+          return;
+        }
+
+        const getImageUrl = (path) => {
+          if (!path) return "";
+          if (path.startsWith("http")) return path;
+          return `http://127.0.0.1:8000${path}`;
+        };
+        
+        console.log('Student degree value:', student.degree);
+        
+        setFormData(prev => ({
+          ...prev,
+          ...student,
+          aadhar_no: student.aadhar_no || student.aadhar || "", 
+          degree: degreeMap[student.degree] || student.degree || "",
+          year: student.year || student.class_yr || "",
+          father_aadhar_no: student.father_aadhar_no || "",
+          mother_aadhar_no: student.mother_aadhar_no || "",
+          
+          // Reset file inputs
+          student_photo: null,
+          father_photo: null,
+          mother_photo: null,
+          aadhar_pdf: null,
+          father_aadhar_pdf: null,
+          mother_aadhar_pdf: null,
+        }));
+
+        setPreview({
+          student: getImageUrl(student.student_photo),
+          father: getImageUrl(student.father_photo),
+          mother: getImageUrl(student.mother_photo),
+          aadhar: getImageUrl(student.aadhar_pdf),
+          father_aadhar: getImageUrl(student.father_aadhar_pdf),
+          mother_aadhar: getImageUrl(student.mother_aadhar_pdf),
+        });
+
       } catch (error) {
-        console.log("No existing profile found:", error.message);
+        console.error("Fetch error:", error);
+        if (error.response?.status === 404) {
+          console.log('Profile not found, this might be a new user');
+          // Don't redirect, just show empty form for new user
+        } else if (error.response?.status === 401) {
+          console.log('Authentication failed, redirecting to login');
+          navigate("/studentlog");
+        }
       }
     };
     
-    fetchExistingProfile();
-  }, [navigate]);
+    fetchStudent();
+  }, [navigate, location.state]);
 
+  // =============================
+  // HANDLERS
+  // =============================
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData({ ...formData, [name]: value });
@@ -140,159 +199,198 @@ function Profile() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setLoading(true);
-    setError('');
-
     const data = new FormData();
+    
     for (let key in formData) {
       if (formData[key] !== null && formData[key] !== "") {
         data.append(key, formData[key]);
       }
     }
 
-    const admission_no = localStorage.getItem('admission_no');
-    if (admission_no) data.append('admission_no', admission_no);
-
     try {
       const response = await axios.post(
         "http://127.0.0.1:8000/hostel/submit-profile/",
         data,
-        { headers: { "Content-Type": "multipart/form-data" } }
+        { 
+          headers: { "Content-Type": "multipart/form-data" },
+          withCredentials: true
+        }
       );
-      
-      alert(response.data.message || "Profile Saved Successfully!");
-      navigate("/homepage");
+      if (response.status === 200 || response.status === 201) {
+        alert("Profile Saved Successfully!");
+        navigate("/Homepage");
+      }
     } catch (error) {
-      console.error("Submission Error:", error);
-      setError(error.response?.data?.error || "Submission Failed");
-      alert(error.response?.data?.error || "Submission Failed. Please try again.");
-    } finally {
-      setLoading(false);
+      console.error("Submission error details:", error.response?.data);
+      alert("Submission Failed. Check console.");
     }
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-100 to-slate-200 py-10 px-4">
-      <div className="max-w-5xl mx-auto bg-white rounded-2xl shadow-xl border">
+    <div className="min-h-screen bg-slate-100 py-10 px-4 font-sans text-slate-900">
+      <div className="max-w-5xl mx-auto bg-white shadow-2xl rounded-lg overflow-hidden border-t-8 border-[#002147] relative">
         
-        {/* Header */}
-        <div className="bg-[#002147] p-6 text-center text-white rounded-t-2xl">
-          <h1 className="text-lg font-bold text-yellow-400 uppercase">Andhra University</h1>
-          <h2 className="text-xl font-black uppercase">College of Engineering (A) Hostel</h2>
-          <p className="text-sm mt-1">Application for Admission</p>
+        <div className="p-6 border-b text-center bg-white">
+          <p className="text-right font-bold text-red-600 text-sm tracking-tight">Admission Fee - 13000/-</p>
+          <h1 className="text-2xl font-bold uppercase text-[#002147]">Andhra University</h1>
+          <h2 className="text-lg font-semibold text-slate-700">College of Engineering (A) Hostel</h2>
         </div>
-
-        {error && (
-          <div className="bg-red-50 text-red-600 p-4 m-6 rounded-lg">
-            <strong>Error:</strong> {error}
-          </div>
-        )}
 
         <form onSubmit={handleSubmit} className="p-8 space-y-8">
           
-          {/* Personal Information */}
-          <SectionTitle title="1. Personal Information" />
-          <div className="grid md:grid-cols-2 gap-6">
-            <Input label="Full Name" name="full_name" value={formData.full_name} handleChange={handleChange} required />
-            <Input label="Aadhar Number" name="aadhar" value={formData.aadhar} handleChange={handleChange} required />
-            <Input label="Date of Birth" name="dob" type="date" value={formData.dob} handleChange={handleChange} />
-            <Input label="Caste" name="caste" value={formData.caste} handleChange={handleChange} />
-          </div>
-
-          {/* Student Photo */}
-          <div>
-            <label className="text-sm font-semibold text-slate-600 mb-2 block">Student Photo</label>
-            <div className="flex gap-4 items-center">
-              <FileInput label="Upload Photo" name="student_photo" handleFileChange={handleFileChange} />
-              {preview.student && (
-                <div className="relative">
-                  <img src={preview.student} alt="student" className="w-20 h-20 rounded-lg object-cover border shadow" />
-                  <button type="button" onClick={() => clearFile("student_photo", "student")} className="absolute -top-2 -right-2 bg-red-600 text-white rounded-full w-5 h-5 text-xs">×</button>
-                </div>
-              )}
+          <section className="relative min-h-[180px]">
+            <SectionTitle title="Personal Information" />
+            
+            <div className="absolute top-0 right-0">
+               {!preview.student ? (
+                 <div className="w-32 h-40 border-2 border-dashed border-slate-300 flex flex-col items-center justify-center rounded bg-slate-50">
+                    <label className="cursor-pointer text-center p-2">
+                       <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">No Photo<br/>Click to Upload</span>
+                       <input type="file" name="student_photo" onChange={handleFileChange} className="hidden" accept="image/*" />
+                    </label>
+                 </div>
+               ) : (
+                 <div className="relative group">
+                    <img src={preview.student} alt="student" className="w-32 h-40 object-cover border-2 border-slate-200 rounded shadow-md" />
+                    <button type="button" onClick={() => clearFile("student_photo", "student")} className="absolute -top-2 -right-2 bg-red-600 text-white rounded-full w-6 h-6 text-xs flex items-center justify-center shadow hover:bg-red-700 transition">×</button>
+                 </div>
+               )}
             </div>
-          </div>
 
-          {/* Academic Details */}
-          <SectionTitle title="2. Academic Details" />
-          <div className="grid md:grid-cols-3 gap-6">
-            <Input label="Admission Number" name="admission_no" value={formData.admission_no} handleChange={handleChange} required readOnly />
-            <Input label="Registration Number" name="reg_no" value={formData.reg_no} handleChange={handleChange} />
-            <Input label="Roll Number" name="roll_no" value={formData.roll_no} handleChange={handleChange} />
-            <Select label="Degree" name="degree" value={formData.degree} onChange={handleChange} options={["B.Tech", "M.Tech", "MCA"]} />
-            <Input label="Branch" name="branch" value={formData.branch} handleChange={handleChange} />
-            <Select label="Year" name="class_yr" value={formData.class_yr} onChange={handleChange} options={["1st Year", "2nd Year", "3rd Year", "4th Year"]} />
-          </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4 w-[75%]">
+              <Input label="Full Name" name="full_name" value={formData.full_name} handleChange={handleChange} required />
+              <Input label="Date of Birth" name="dob" type="date" value={formData.dob} handleChange={handleChange} />
+              <div className="grid grid-cols-2 gap-2">
+                <Input label="Aadhaar Number" name="aadhar_no" value={formData.aadhar_no} handleChange={handleChange} required />
+                <FileInput 
+                  label="Aadhaar (PDF)" 
+                  name="aadhar_pdf" 
+                  fileObj={formData.aadhar_pdf} 
+                  handleFileChange={handleFileChange} 
+                  clearFile={() => clearFile("aadhar_pdf")} 
+                  accept=".pdf"
+                  previewUrl={preview.aadhar}
+                />
+              </div>
+              <Input label="Caste" name="caste" value={formData.caste} handleChange={handleChange} />
+            </div>
+          </section>
 
-          {/* Communication Details */}
-          <SectionTitle title="3. Communication Details" />
-          <div className="grid md:grid-cols-2 gap-6">
-            <Input label="Mobile Number" name="mobile" value={formData.mobile} handleChange={handleChange} type="tel" />
-            <Input label="Email" name="email" type="email" value={formData.email} handleChange={handleChange} />
-          </div>
-          <Textarea label="Address" name="address" value={formData.address} handleChange={handleChange} />
+          <section>
+            <SectionTitle title="Academic Details" />
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-4">
+              <Input label="Admission No" name="admission_no" value={formData.admission_no} handleChange={handleChange} required />
+              <Input label="Reg No" name="reg_no" value={formData.reg_no} handleChange={handleChange} />
+              <Input label="Roll No" name="roll_no" value={formData.roll_no} handleChange={handleChange} />
+              <Input label="Admission Date" name="admission_date" type="date" value={formData.admission_date} handleChange={handleChange} />
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+              <Select label="Degree" name="degree" value={formData.degree} onChange={handleChange} options={["B.Tech", "M.Tech", "MCA", "MSc"]} />
+              <Input label="Branch" name="branch" value={formData.branch} handleChange={handleChange} />
+              <Select label="Year" name="year" value={formData.year} onChange={handleChange} options={["1/4", "2/4", "3/4", "4/4", "1/2", "2/2", "1/6", "2/6", "3/6", "4/6", "5/6", "6/6"]} />
+            </div>
+          </section>
 
-          {/* Other Information */}
-          <SectionTitle title="4. Other Information" />
-          <div className="grid md:grid-cols-2 gap-6">
-            <Select label="Catering Type" name="catering" value={formData.catering} onChange={handleChange} options={["veg", "non-veg"]} />
-            <Input label="Amount Paid" name="amount" value={formData.amount} readOnly />
-          </div>
+          <section>
+            <SectionTitle title="Communication Details" />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
+              <Input label="Mobile Number" name="mobile" value={formData.mobile} handleChange={handleChange} />
+              <Input label="Email Address" name="email" type="email" value={formData.email} handleChange={handleChange} />
+            </div>
+            <div className="mt-4">
+              <Textarea label="Full Address" name="address" value={formData.address} handleChange={handleChange} />
+            </div>
+          </section>
 
-          {/* Father Details */}
-          <SectionTitle title="5. Father Details" />
-          <div className="grid md:grid-cols-2 gap-6">
-            <Input label="Father Name" name="father_name" value={formData.father_name} handleChange={handleChange} />
-            <Input label="Father Phone" name="father_phone" value={formData.father_phone} handleChange={handleChange} type="tel" />
-            <FileInput label="Father Aadhar (PDF)" name="father_aadhar" handleFileChange={handleFileChange} />
-            <FileInput label="Father Photo" name="father_photo" handleFileChange={handleFileChange} />
-          </div>
+          <section className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div className="bg-slate-50 p-5 rounded border shadow-sm">
+              <SectionTitle title="Father" />
+              <div className="space-y-4 mt-3">
+                <Input label="Father Name" name="father_name" value={formData.father_name} handleChange={handleChange} />
+                <Input label="Father Phone" name="father_phone" value={formData.father_phone} handleChange={handleChange} />
+                <div className="grid grid-cols-2 gap-2">
+                  <Input label="Father Aadhaar No" name="father_aadhar_no" value={formData.father_aadhar_no} handleChange={handleChange} />
+                  <FileInput 
+                    label="Aadhaar (PDF)" 
+                    name="father_aadhar_pdf" 
+                    fileObj={formData.father_aadhar_pdf} 
+                    handleFileChange={handleFileChange} 
+                    clearFile={() => clearFile("father_aadhar_pdf")} 
+                    accept=".pdf"
+                    previewUrl={preview.father_aadhar}  
+                  />
+                </div>
+                <div className="flex items-center gap-3">
+                  {!preview.father ? (
+                    <FileInput label="Father Photo" name="father_photo" fileObj={formData.father_photo} handleFileChange={handleFileChange} accept="image/*" />
+                  ) : (
+                    <div className="relative">
+                      <img src={preview.father} className="w-10 h-12 object-cover rounded border shadow" alt="father" />
+                      <button type="button" onClick={() => clearFile("father_photo", "father")} className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-4 h-4 text-[8px] flex items-center justify-center shadow">×</button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
 
-          {/* Mother Details */}
-          <SectionTitle title="6. Mother Details" />
-          <div className="grid md:grid-cols-2 gap-6">
-            <Input label="Mother Name" name="mother_name" value={formData.mother_name} handleChange={handleChange} />
-            <Input label="Mother Phone" name="mother_phone" value={formData.mother_phone} handleChange={handleChange} type="tel" />
-            <FileInput label="Mother Aadhar (PDF)" name="mother_aadhar" handleFileChange={handleFileChange} />
-            <FileInput label="Mother Photo" name="mother_photo" handleFileChange={handleFileChange} />
-          </div>
+            <div className="bg-slate-50 p-5 rounded border shadow-sm">
+              <SectionTitle title="Mother" />
+              <div className="space-y-4 mt-3">
+                <Input label="Mother Name" name="mother_name" value={formData.mother_name} handleChange={handleChange} />
+                <Input label="Mother Phone" name="mother_phone" value={formData.mother_phone} handleChange={handleChange} />
+                <div className="grid grid-cols-2 gap-2">
+                  <Input label="Mother Aadhaar No" name="mother_aadhar_no" value={formData.mother_aadhar_no} handleChange={handleChange} />
+                  <FileInput 
+                    label="Aadhaar (PDF)" 
+                    name="mother_aadhar_pdf" 
+                    fileObj={formData.mother_aadhar_pdf} 
+                    handleFileChange={handleFileChange} 
+                    clearFile={() => clearFile("mother_aadhar_pdf")} 
+                    accept=".pdf"
+                    previewUrl={preview.mother_aadhar} 
+                  />
+                </div>
+                <div className="flex items-center gap-3">
+                  {!preview.mother ? (
+                    <FileInput label="Mother Photo" name="mother_photo" fileObj={formData.mother_photo} handleFileChange={handleFileChange} accept="image/*" />
+                  ) : (
+                    <div className="relative">
+                      <img src={preview.mother} className="w-10 h-12 object-cover rounded border shadow" alt="mother" />
+                      <button type="button" onClick={() => clearFile("mother_photo", "mother")} className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-4 h-4 text-[8px] flex items-center justify-center shadow">×</button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </section>
 
-          {/* Guardian Details */}
-          <SectionTitle title="7. Guardian Details" />
-          <div className="grid md:grid-cols-2 gap-6">
-            <Input label="Guardian Name" name="guardian_name" value={formData.guardian_name} handleChange={handleChange} />
-            <Input label="Guardian Phone" name="guardian_phone" value={formData.guardian_phone} handleChange={handleChange} type="tel" />
-            <FileInput label="Guardian Aadhar (PDF)" name="guardian_aadhar" handleFileChange={handleFileChange} />
+          <div className="pt-6">
+            <button type="submit" className="w-full bg-[#002147] text-white font-bold py-4 rounded hover:bg-[#003366] transition shadow-lg uppercase tracking-widest text-sm">
+              Save Profile
+            </button>
           </div>
-
-          {/* Submit Button */}
-          <button type="submit" disabled={loading} className="w-full bg-[#002147] hover:bg-blue-900 text-white font-bold py-4 rounded-xl transition disabled:opacity-50">
-            {loading ? 'Saving...' : 'Save Profile'}
-          </button>
         </form>
       </div>
     </div>
   );
 }
 
-// Helper Components
-const SectionTitle = ({ title }) => (
-  <h3 className="text-[#002147] font-bold border-b pb-2 uppercase text-sm">{title}</h3>
-);
+// HELPERS (same as before, no changes needed)
+const SectionTitle = ({ title }) => <h3 className="text-[#002147] font-bold border-b border-slate-200 pb-1 uppercase text-[11px] mb-2">{title}</h3>;
 
-const Input = ({ label, name, value, handleChange, type = "text", required = false, readOnly = false }) => (
+const Input = ({ label, name, value, handleChange, type="text", required=false }) => (
   <div className="flex flex-col">
-    <label className="text-sm font-semibold text-slate-600 mb-2">{label} {required && <span className="text-red-500">*</span>}</label>
-    <input type={type} name={name} value={value || ""} onChange={handleChange} required={required} readOnly={readOnly}
-      className="border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-400 outline-none" />
+    <label className="text-[10px] font-bold text-slate-500 mb-1 uppercase tracking-tight">{label}</label>
+    <input type={type} name={name} value={value || ""} onChange={handleChange} required={required}
+    className="border border-slate-300 rounded px-3 py-1.5 text-sm outline-none bg-white focus:ring-1 focus:ring-blue-400"/>
   </div>
 );
 
 const Select = ({ label, name, value, onChange, options }) => (
   <div className="flex flex-col">
-    <label className="text-sm font-semibold text-slate-600 mb-2">{label}</label>
-    <select name={name} value={value} onChange={onChange} className="border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-400 outline-none">
-      <option value="">Select {label}</option>
+    <label className="text-[10px] font-bold text-slate-500 mb-1 uppercase tracking-tight">{label}</label>
+    <select name={name} value={value} onChange={onChange} className="border border-slate-300 rounded px-3 py-1.5 text-sm outline-none bg-white cursor-pointer">
+      <option value="">Select Option</option>
       {options.map(opt => <option key={opt} value={opt}>{opt}</option>)}
     </select>
   </div>
@@ -300,31 +398,60 @@ const Select = ({ label, name, value, onChange, options }) => (
 
 const Textarea = ({ label, name, value, handleChange }) => (
   <div className="flex flex-col">
-    <label className="text-sm font-semibold text-slate-600 mb-2">{label}</label>
-    <textarea name={name} value={value || ""} onChange={handleChange} rows="3"
-      className="border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-400 outline-none resize-none" />
+    <label className="text-[10px] font-bold text-slate-500 mb-1 uppercase tracking-tight">{label}</label>
+    <textarea name={name} value={value || ""} onChange={handleChange} rows="2" className="border border-slate-300 rounded px-3 py-1.5 text-sm outline-none bg-white resize-none"/>
   </div>
 );
 
-const FileInput = ({ label, name, handleFileChange }) => {
-  const [fileName, setFileName] = useState("");
-
-  const handleChange = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      setFileName(file.name);
-      handleFileChange(e);
-    }
-  };
+const FileInput = ({ label, name, fileObj, handleFileChange, clearFile, accept, previewUrl }) => {
+  const fileName = previewUrl ? previewUrl.split('/').pop() || "Document.pdf" : "";
 
   return (
-    <div className="flex flex-col">
-      <label className="text-sm font-semibold text-slate-600 mb-2">{label}</label>
-      <label className="flex items-center justify-between border-2 border-dashed border-slate-300 rounded-xl px-4 py-2 cursor-pointer hover:border-blue-500 transition">
-        <span className="text-sm text-slate-600 truncate">{fileName || "Click to upload"}</span>
-        <span className="bg-[#002147] text-white text-xs px-3 py-1 rounded-md">Browse</span>
-        <input type="file" name={name} accept="image/*,application/pdf" onChange={handleChange} className="hidden" />
-      </label>
+    <div className="flex flex-col flex-1">
+      <label className="text-[10px] font-bold text-slate-500 mb-1 uppercase tracking-tight">{label}</label>
+
+      <div className="border border-slate-300 rounded p-1.5 bg-slate-50 flex flex-col justify-center min-h-[36px]">
+
+        {previewUrl && !fileObj && (
+          <div className="flex justify-between items-center bg-green-50 px-2 py-1 border border-green-200 rounded">
+            <a
+              href={previewUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 text-green-700 hover:text-green-800 text-[10px] font-bold"
+              title="View Document"
+            >
+              <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clipRule="evenodd" />
+              </svg>
+              {fileName.length > 15 ? fileName.substring(0, 15) + '...' : fileName}
+            </a>
+            <label className="text-slate-400 text-[9px] uppercase tracking-wider font-bold cursor-pointer hover:text-slate-700 ml-2">
+              Change
+              <input type="file" name={name} onChange={handleFileChange} accept={accept} className="hidden" />
+            </label>
+          </div>
+        )}
+
+        {fileObj ? (
+          <div className="flex justify-between items-center bg-blue-50 px-2 py-1 border border-blue-200 rounded">
+            <span className="flex items-center gap-1.5 text-[10px] text-blue-700 font-bold truncate">
+              <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clipRule="evenodd" />
+              </svg>
+              {fileObj.name.length > 15 ? fileObj.name.substring(0, 15) + '...' : fileObj.name}
+            </span>
+            <button type="button" onClick={clearFile} className="text-red-500 hover:text-red-700 text-sm font-bold ml-2 leading-none">×</button>
+          </div>
+        ) : (
+          !previewUrl && (
+            <label className="bg-[#002147] text-white text-[9px] px-2 py-1.5 rounded cursor-pointer uppercase text-center font-semibold w-full transition hover:bg-[#003366]">
+              Browse File
+              <input type="file" name={name} onChange={handleFileChange} accept={accept} className="hidden" />
+            </label>
+          )
+        )}
+      </div>
     </div>
   );
 };

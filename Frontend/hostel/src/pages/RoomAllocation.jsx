@@ -51,7 +51,7 @@ function RoomAllocation() {
 
   // Back to Dashboard Function
   const handleBackToDashboard = () => {
-    navigate('/');
+    navigate('/homepage');
   };
 
   // PDF Download Function

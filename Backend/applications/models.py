@@ -256,39 +256,51 @@ class Payment(models.Model):
 # ========================
 
 class Student(models.Model):
+    DEGREE_CHOICES = [
+        ('B.Tech', 'B.Tech'),
+        ('M.Tech', 'M.Tech'),
+        ('MSc', 'M.Sc'),
+    ]
+     
     full_name = models.CharField(max_length=100)
-    aadhar = models.CharField(max_length=12, blank=True, null=True)  # ✅ Added
+    aadhar = models.CharField(max_length=12, blank=True, null=True)
     admission_no = models.CharField(max_length=20, unique=True)
     reg_no = models.CharField(max_length=20, null=True, blank=True)
-    class_yr = models.CharField(max_length=10, blank=True, null=True)  # ✅ Added
-    branch = models.CharField(max_length=50, blank=True, null=True)  # ✅ Added
-    roll_no = models.CharField(max_length=20, blank=True, null=True)  # ✅ Added
-    dob = models.DateField(blank=True, null=True)  # ✅ Already has this
+    class_yr = models.CharField(max_length=10, blank=True, null=True)
+    branch = models.CharField(max_length=50, blank=True, null=True)
+    roll_no = models.CharField(max_length=20, blank=True, null=True)
+    dob = models.DateField(blank=True, null=True)
     mobile = models.CharField(max_length=15)
     email = models.EmailField()
-    address = models.TextField(blank=True, null=True)  # ✅ Added
-    caste = models.CharField(max_length=50, blank=True, null=True)  # ✅ Added
-    catering = models.CharField(max_length=20, blank=True, null=True)  # ✅ Added
+    address = models.TextField(blank=True, null=True)
+    caste = models.CharField(max_length=50, blank=True, null=True)
+    catering = models.CharField(max_length=20, blank=True, null=True)
     amount = models.CharField(max_length=10, default="13000")
     student_photo = models.ImageField(upload_to="students/photos/", null=True, blank=True)
     
+    # Hostel related fields (from first model)
+    months_stayed = models.IntegerField(default=0)
+    is_leaving = models.BooleanField(default=False)
+    room = models.CharField(max_length=20, null=True, blank=True)
+    
     # Parents & Guardian
-    father_name = models.CharField(max_length=100, blank=True, null=True)  # ✅ Added
-    father_phone = models.CharField(max_length=15, blank=True, null=True)  # ✅ Added
+    father_name = models.CharField(max_length=100, blank=True, null=True)
+    father_phone = models.CharField(max_length=15, blank=True, null=True)
     father_aadhar = models.FileField(upload_to="parents/father/aadhar/", null=True, blank=True)
     father_photo = models.ImageField(upload_to="parents/father/photos/", null=True, blank=True)
-    mother_name = models.CharField(max_length=100, blank=True, null=True)  # ✅ Added
-    mother_phone = models.CharField(max_length=15, blank=True, null=True)  # ✅ Added
+    mother_name = models.CharField(max_length=100, blank=True, null=True)
+    mother_phone = models.CharField(max_length=15, blank=True, null=True)
     mother_aadhar = models.FileField(upload_to="parents/mother/aadhar/", null=True, blank=True)
     mother_photo = models.ImageField(upload_to="parents/mother/photos/", null=True, blank=True)
-    guardian_name = models.CharField(max_length=100, blank=True, null=True)  # ✅ Added
-    guardian_phone = models.CharField(max_length=15, blank=True, null=True)  # ✅ Added
+    guardian_name = models.CharField(max_length=100, blank=True, null=True)
+    guardian_phone = models.CharField(max_length=15, blank=True, null=True)
     guardian_aadhar = models.FileField(upload_to="guardian/aadhar/", null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     block = models.CharField(max_length=100, blank=True, null=True, default="Not Allotted")
     room_no = models.CharField(max_length=20, blank=True, null=True, default="Not Allotted")
     hostel_name = models.CharField(max_length=100, blank=True, null=True)
+    degree = models.CharField(max_length=10, choices=DEGREE_CHOICES, null=True, blank=True)
 
     def __str__(self):
         return f"{self.full_name} ({self.admission_no})"
@@ -332,9 +344,43 @@ class Certificate(models.Model):
         return f"{self.student_name} - {self.certificate_type}"
 
 
-# ========================
-# MESS PAYMENT MODEL (from second config)
-# ========================
+
+# Add to applications/models.py
+class BillingRate(models.Model):
+    """Store billing rates from Excel"""
+    days = models.IntegerField()
+    electric_charge = models.DecimalField(max_digits=10, decimal_places=2)
+    mess_charge = models.DecimalField(max_digits=10, decimal_places=2)
+    service_charge = models.DecimalField(max_digits=10, decimal_places=2)
+    net_demand = models.DecimalField(max_digits=10, decimal_places=2)
+    collection = models.DecimalField(max_digits=10, decimal_places=2)
+    date = models.DateField()
+    month = models.CharField(max_length=20)  # e.g., "January 2024"
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        ordering = ['-date']
+    
+    def __str__(self):
+        return f"{self.month} - Days: {self.days}"
+
+class StudentBilling(models.Model):
+    """Track student-specific billing"""
+    student = models.ForeignKey('Student', on_delete=models.CASCADE, related_name='billings')
+    month = models.CharField(max_length=20)
+    billing_rate = models.ForeignKey(BillingRate, on_delete=models.CASCADE)
+    amount_paid = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    payment_status = models.CharField(max_length=20, default='pending')  # pending, paid, partial
+    payment_date = models.DateTimeField(null=True, blank=True)
+    mess_payment = models.ForeignKey('MessPayment', on_delete=models.SET_NULL, null=True, blank=True)
+    
+    class Meta:
+        unique_together = ('student', 'month')
+    
+    def __str__(self):
+        return f"{self.student.full_name} - {self.month}"
+
+# Update MessPayment model in applications/models.py
 
 class MessPayment(models.Model):
     receipt_no = models.AutoField(primary_key=True)
@@ -350,8 +396,13 @@ class MessPayment(models.Model):
     razorpay_order_id = models.CharField(max_length=100, null=True, blank=True)
     razorpay_payment_id = models.CharField(max_length=100, null=True, blank=True)
     status = models.CharField(max_length=20, default="Pending")
-    created_at = models.DateTimeField(auto_now_add=True, null=True, blank=True)  # ✅ ADD THIS LINE
-
+    created_at = models.DateTimeField(auto_now_add=True, null=True, blank=True)
+    
+    # Add these fields
+    student = models.ForeignKey(Student, on_delete=models.SET_NULL, null=True, blank=True, related_name='mess_payments')
+    billing_rate = models.ForeignKey(BillingRate, on_delete=models.SET_NULL, null=True, blank=True)
+    days_count = models.IntegerField(default=0)
+    
     def __str__(self):
         return f"{self.student_name} - {self.month} - {self.status}"
 
@@ -377,4 +428,5 @@ class PasswordResetOTP(models.Model):
     
     def __str__(self):
         return f"OTP for {self.user.email} - {self.otp} - Valid: {self.is_valid()}"
-    
+
+

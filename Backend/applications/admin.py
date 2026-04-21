@@ -4,7 +4,7 @@ from django.contrib.auth.models import User
 from django.contrib.auth.admin import UserAdmin
 from .models import (
     HostelApplication, StudentProfile, Block, Floor, Room, Booking, Profile, Payment,
-    MessPayment, Student, Certificate, StudentRegistration
+    MessPayment, Student, Certificate, StudentRegistration, BillingRate, StudentBilling,
 )
 
 # ========================
@@ -144,3 +144,16 @@ class CertificateAdmin(admin.ModelAdmin):
     list_filter = ['certificate_type', 'generated_at']
     search_fields = ['student_name', 'admission_no', 'reg_no']
     readonly_fields = ['generated_at']
+
+
+@admin.register(BillingRate)
+class BillingRateAdmin(admin.ModelAdmin):
+    list_display = ['month', 'days', 'mess_charge', 'net_demand', 'date']
+    search_fields = ['month']
+    list_filter = ['date']
+
+@admin.register(StudentBilling)
+class StudentBillingAdmin(admin.ModelAdmin):
+    list_display = ['student', 'month', 'amount_paid', 'payment_status']
+    search_fields = ['student__full_name', 'student__admission_no', 'month']
+    list_filter = ['payment_status', 'month']

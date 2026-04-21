@@ -40,6 +40,11 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch, mm
 from django.http import HttpResponse, Http404
+import pandas as pd
+from django.core.files.storage import default_storage
+from django.core.files.base import ContentFile
+from .models import BillingRate, StudentBilling
+from django.db.models import Sum
 
 # Initialize Razorpay client
 razorpay_client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
@@ -1141,7 +1146,6 @@ def admin_login(request):
             "error": f"Server error: {str(e)}"
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-
 # ==================== PROFILE SUBMISSION ====================
 
 @api_view(['POST'])
@@ -1298,6 +1302,11 @@ def get_student_profile(request):
             # Get room details from booking
             block_name = "Not Allotted"
             room_number = "Not Allotted"
+            floor_number = None
+            bed_number = None
+            room_type = None
+            sharing_type = None
+            allotted_date = None
             booking_found = False
             
             try:
@@ -1314,9 +1323,15 @@ def get_student_profile(request):
                     
                     if booking:
                         booking_found = True
-                        # FIXED: Correct relationship path - room -> floor -> block
-                        block_name = booking.room.floor.block.display_name
-                        room_number = booking.room.room_number
+                        # Get room details
+                        room = booking.room
+                        block_name = room.floor.block.display_name
+                        room_number = room.room_number
+                        floor_number = room.floor.floor_number
+                        room_type = room.get_room_type_display()
+                        sharing_type = f"{room.capacity} Sharing" if room.capacity else "N/A"
+                        allotted_date = booking.booking_date.strftime('%Y-%m-%d') if booking.booking_date else None
+                        
                         print(f"✅ Found booking - Block: {block_name}, Room: {room_number}")
                     else:
                         print("No active booking found")
@@ -1327,6 +1342,17 @@ def get_student_profile(request):
                 print(f"Error getting booking: {e}")
                 import traceback
                 traceback.print_exc()
+            
+            # Create room_details object
+            room_details = {
+                'room_number': room_number,
+                'block_name': block_name,
+                'floor': floor_number,
+                'bed_number': bed_number,
+                'room_type': room_type,
+                'sharing_type': sharing_type,
+                'allotted_date': allotted_date
+            } if booking_found else None
             
             # Prepare response
             response_data = {
@@ -1350,12 +1376,14 @@ def get_student_profile(request):
                 'mother_phone': student_data.mother_phone,
                 'guardian_name': student_data.guardian_name,
                 'guardian_phone': student_data.guardian_phone,
-                'block': block_name,
-                'room_no': room_number,
+                'student_photo': student_data.student_photo.url if student_data.student_photo else None,
+                'room_details': room_details,  # ✅ Added room_details object
+                'block': block_name,  # Keep for backward compatibility
+                'room_no': room_number,  # Keep for backward compatibility
                 'has_booking': booking_found
             }
             
-            print(f"Returning response with block: {block_name}, room: {room_number}")
+            print(f"Returning response with room_details: {room_details}")
             return Response(response_data)
         
         # Try StudentProfile as fallback
@@ -1374,12 +1402,32 @@ def get_student_profile(request):
             booking = Booking.objects.filter(student=user, status='confirmed').first()
             block_name = "Not Allotted"
             room_number = "Not Allotted"
+            floor_number = None
+            room_type = None
+            sharing_type = None
+            allotted_date = None
+            booking_found = False
             
             if booking:
-                # FIXED: Correct relationship path
-                block_name = booking.room.floor.block.display_name
-                room_number = booking.room.room_number
+                booking_found = True
+                room = booking.room
+                block_name = room.floor.block.display_name
+                room_number = room.room_number
+                floor_number = room.floor.floor_number
+                room_type = room.get_room_type_display()
+                sharing_type = f"{room.capacity} Sharing" if room.capacity else "N/A"
+                allotted_date = booking.booking_date.strftime('%Y-%m-%d') if booking.booking_date else None
                 print(f"✅ Found booking via profile - Block: {block_name}, Room: {room_number}")
+            
+            room_details = {
+                'room_number': room_number,
+                'block_name': block_name,
+                'floor': floor_number,
+                'bed_number': None,
+                'room_type': room_type,
+                'sharing_type': sharing_type,
+                'allotted_date': allotted_date
+            } if booking_found else None
 
             return Response({
                 'full_name': user.get_full_name(),
@@ -1402,9 +1450,11 @@ def get_student_profile(request):
                 'mother_phone': '',
                 'guardian_name': '',
                 'guardian_phone': '',
+                'student_photo': None,
+                'room_details': room_details,  # ✅ Added room_details object
                 'block': block_name,
                 'room_no': room_number,
-                'has_booking': booking is not None
+                'has_booking': booking_found
             })
 
         return Response({"error": "Student not found"}, status=404)
@@ -1414,7 +1464,6 @@ def get_student_profile(request):
         import traceback
         traceback.print_exc()
         return Response({"error": str(e)}, status=500)
-
 
 # ==================== DEDICATED HOSTEL INFO ENDPOINT (NEW) ====================
 
@@ -1624,6 +1673,143 @@ def save_certificate_record(request):
     except Exception as e:
         return Response({"status": "error", "message": str(e)}, status=400)
 
+
+
+# ==================== NO DUES / MONTHS UPDATE ENDPOINT ====================
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def update_months(request):
+    """
+    Update months for No Dues Certificate
+    Expected JSON payload: {"months": 6}
+    """
+    try:
+        import json
+        data = json.loads(request.body) if request.body else {}
+        months = data.get('months')
+        
+        print(f"📅 Update months request - User: {request.user.username}, Months: {months}")
+        
+        if months is None:
+            return Response({
+                'success': False,
+                'error': 'Months value is required'
+            }, status=400)
+        
+        # Get student profile
+        try:
+            student_profile = StudentProfile.objects.get(user=request.user)
+        except StudentProfile.DoesNotExist:
+            return Response({
+                'success': False,
+                'error': 'Student profile not found'
+            }, status=404)
+        
+        # Store months in session
+        request.session['no_dues_months'] = months
+        
+        return Response({
+            'success': True,
+            'message': f'Successfully updated to {months} months',
+            'data': {
+                'months': months,
+                'student': student_profile.admission,
+                'student_name': request.user.get_full_name()
+            }
+        }, status=200)
+        
+    except Exception as e:
+        print(f"Error in update_months: {str(e)}")
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=500)
+    
+
+# Add this near your other certificate endpoints (around line 900)
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def check_no_dues(request):
+    """
+    Check if a student has any pending dues
+    Query params: reg_no (registration number)
+    """
+    try:
+        reg_no = request.GET.get('reg_no')
+        
+        if not reg_no:
+            return Response({
+                'success': False,
+                'error': 'Registration number is required'
+            }, status=400)
+        
+        # Find the student
+        student = Student.objects.filter(reg_no=reg_no).first()
+        
+        if not student:
+            return Response({
+                'success': False,
+                'error': 'Student not found'
+            }, status=404)
+        
+        # Calculate dues (example logic - adjust based on your models)
+        # You need to implement based on your actual payment models
+        
+        # Example: Check mess payments
+        mess_payments = MessPayment.objects.filter(
+            roll_no=reg_no,
+            status='Success'
+        )
+        
+        total_paid = sum(payment.amount for payment in mess_payments)
+        
+        # Required amount (example: 3000 per month * months)
+        months = request.session.get('no_dues_months', 6)
+        required_amount = 3000 * months  # Adjust based on your fee structure
+        
+        # Check if student has active booking payment
+        try:
+            user_profile = StudentProfile.objects.filter(admission=student.admission_no).first()
+            if user_profile and user_profile.user:
+                booking = Booking.objects.filter(
+                    student=user_profile.user,
+                    status='confirmed'
+                ).first()
+                
+                if booking:
+                    payment = Payment.objects.filter(
+                        booking=booking,
+                        payment_status='completed'
+                    ).first()
+                    
+                    if payment:
+                        total_paid += payment.amount
+                        required_amount += 13000  # Room booking fee
+        except:
+            pass
+        
+        is_no_dues = total_paid >= required_amount
+        
+        return Response({
+            'success': True,
+            'is_no_dues': is_no_dues,
+            'total_paid': total_paid,
+            'required_amount': required_amount,
+            'pending_amount': max(0, required_amount - total_paid),
+            'student_name': student.full_name,
+            'reg_no': reg_no
+        })
+        
+    except Exception as e:
+        print(f"Error in check_no_dues: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=500)
 
 # ==================== STUDENT VIEW ====================
 
@@ -2053,3 +2239,615 @@ def get_amount_in_words(amount):
         return (convert_hundreds(thousands) + " Thousand" + (" " + convert_hundreds(remainder) if remainder > 0 else ""))
     else:
         return convert_hundreds(amount)
+    
+
+
+
+@csrf_exempt 
+def upload_excel(request):
+    """
+    Bulk upload students from Excel file with monthly billing data
+    Handles the complex META Hostel Excel format
+    """
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Method not allowed'}, status=405)
+    
+    try:
+        if 'file' not in request.FILES:
+            return JsonResponse({'error': 'No file provided'}, status=400)
+        
+        excel_file = request.FILES['file']
+        
+        if not excel_file.name.endswith(('.xlsx', '.xls')):
+            return JsonResponse({'error': 'Invalid file format. Please upload .xlsx or .xls file'}, status=400)
+        
+        # Read Excel file
+        df = pd.read_excel(excel_file, header=None)
+        
+        # Find the header row (where "S.no" is located)
+        header_row = None
+        for idx, row in df.iterrows():
+            if row.astype(str).str.contains('S.no').any():
+                header_row = idx
+                break
+        
+        if header_row is None:
+            return JsonResponse({'error': 'Could not find header row in Excel'}, status=400)
+        
+        # Get the actual data rows
+        data_df = df.iloc[header_row + 1:].reset_index(drop=True)
+        
+        # Define month columns mapping (based on your Excel structure)
+        # Columns: July 2024, Aug 2024, Sep 2024, Oct 2024, Nov 2024, Dec 2024, 
+        # Jan 2025, Feb 2025, Mar 2025, Apr 2025, May 2025
+        month_columns = [
+            {'name': 'July 2024', 'days_col': 4, 'mess_charge_col': 6, 'date_col': 10},
+            {'name': 'August 2024', 'days_col': 13, 'mess_charge_col': 15, 'date_col': 19},
+            {'name': 'September 2024', 'days_col': 22, 'mess_charge_col': 24, 'date_col': 28},
+            {'name': 'October 2024', 'days_col': 31, 'mess_charge_col': 33, 'date_col': 37},
+            {'name': 'November 2024', 'days_col': 40, 'mess_charge_col': 42, 'date_col': 46},
+            {'name': 'December 2024', 'days_col': 49, 'mess_charge_col': 51, 'date_col': 55},
+            {'name': 'January 2025', 'days_col': 58, 'mess_charge_col': 60, 'date_col': 64},
+            {'name': 'February 2025', 'days_col': 67, 'mess_charge_col': 69, 'date_col': 73},
+            {'name': 'March 2025', 'days_col': 76, 'mess_charge_col': 78, 'date_col': 82},
+            {'name': 'April 2025', 'days_col': 85, 'mess_charge_col': 87, 'date_col': 91},
+            {'name': 'May 2025', 'days_col': 94, 'mess_charge_col': 96, 'date_col': 100},
+        ]
+        
+        success_count = 0
+        error_count = 0
+        errors = []
+        students_created = 0
+        payments_created = 0
+        
+        for index, row in data_df.iterrows():
+            try:
+                # Extract student data
+                s_no = row.iloc[0] if len(row) > 0 else None
+                student_name = str(row.iloc[1]) if len(row) > 1 and pd.notna(row.iloc[1]) else ''
+                registration_no = str(row.iloc[2]) if len(row) > 2 and pd.notna(row.iloc[2]) else ''
+                
+                # Skip empty rows or total rows
+                if not student_name or student_name == 'nan' or 'Total' in str(student_name):
+                    continue
+                
+                # Generate admission number from registration or create one
+                admission_no = registration_no if registration_no and registration_no != 'nan' else f"META{int(s_no) if s_no else index:04d}"
+                reg_no = registration_no if registration_no and registration_no != 'nan' else admission_no
+                
+                # Check if student already exists
+                existing_student = Student.objects.filter(admission_no=admission_no).first()
+                
+                if existing_student:
+                    print(f"Student {student_name} already exists, updating...")
+                    student = existing_student
+                else:
+                    # Create new student
+                    student = Student.objects.create(
+                        full_name=student_name,
+                        admission_no=admission_no,
+                        reg_no=reg_no,
+                        class_yr="2nd Year" if "META" in str(excel_file.name) else "1st Year",
+                        branch="CSE",
+                        mobile="",
+                        email=f"{reg_no}@au.edu.in",
+                        password=make_password(reg_no),
+                        amount="13250" if "META" in str(excel_file.name) else "10000"
+                    )
+                    students_created += 1
+                    print(f"Created new student: {student_name}")
+                
+                # Process monthly payments
+                for month_info in month_columns:
+                    try:
+                        days = row.iloc[month_info['days_col']] if len(row) > month_info['days_col'] else None
+                        mess_charge = row.iloc[month_info['mess_charge_col']] if len(row) > month_info['mess_charge_col'] else None
+                        payment_date = row.iloc[month_info['date_col']] if len(row) > month_info['date_col'] else None
+                        
+                        # Check if there's a payment (non-zero and not empty)
+                        if (mess_charge and pd.notna(mess_charge) and 
+                            isinstance(mess_charge, (int, float)) and 
+                            mess_charge > 0):
+                            
+                            # Check if payment already exists
+                            existing_payment = MessPayment.objects.filter(
+                                roll_no=reg_no,
+                                month=month_info['name'],
+                                status='Success'
+                            ).first()
+                            
+                            if not existing_payment:
+                                # Parse payment date
+                                payment_date_obj = None
+                                if payment_date and pd.notna(payment_date):
+                                    try:
+                                        if isinstance(payment_date, str):
+                                            payment_date_obj = datetime.strptime(payment_date.split()[0], '%Y-%m-%d').date()
+                                        else:
+                                            payment_date_obj = payment_date.date() if hasattr(payment_date, 'date') else payment_date
+                                    except:
+                                        payment_date_obj = datetime.now().date()
+                                else:
+                                    payment_date_obj = datetime.now().date()
+                                
+                                # Create billing rate if not exists
+                                billing_rate, _ = BillingRate.objects.get_or_create(
+                                    month=month_info['name'],
+                                    defaults={
+                                        'days': int(days) if days and pd.notna(days) else 30,
+                                        'electric_charge': 0,
+                                        'mess_charge': float(mess_charge) if mess_charge else 0,
+                                        'service_charge': 0,
+                                        'net_demand': float(mess_charge) if mess_charge else 0,
+                                        'collection': float(mess_charge) if mess_charge else 0,
+                                        'date': payment_date_obj
+                                    }
+                                )
+                                
+                                # Create payment record
+                                payment = MessPayment.objects.create(
+                                    student_name=student_name,
+                                    roll_no=reg_no,
+                                    room_no=student.room_no or "Not Allotted",
+                                    class_yr=student.class_yr or "2nd Year",
+                                    date=payment_date_obj,
+                                    month=month_info['name'],
+                                    amount=int(float(mess_charge)) if mess_charge else 0,
+                                    payment_mode="Online",
+                                    purpose="Mess Fee",
+                                    status="Success",
+                                    student=student,
+                                    billing_rate=billing_rate,
+                                    days_count=int(days) if days and pd.notna(days) else 0
+                                )
+                                payments_created += 1
+                                print(f"  ✅ Created payment for {month_info['name']}: ₹{mess_charge}")
+                            else:
+                                print(f"  ⏭️ Payment for {month_info['name']} already exists")
+                    
+                    except Exception as e:
+                        print(f"Error processing month {month_info['name']} for {student_name}: {e}")
+                        errors.append(f"Student {student_name}, Month {month_info['name']}: {str(e)}")
+                
+                success_count += 1
+                
+            except Exception as e:
+                print(f"Error processing row {index}: {e}")
+                errors.append(f"Row {index + 2}: {str(e)}")
+                error_count += 1
+        
+        # Save uploaded file
+        file_path = default_storage.save(f'uploads/students/{excel_file.name}', ContentFile(excel_file.read()))
+        
+        return JsonResponse({
+            'success': True,
+            'message': f'Upload completed: {success_count} students processed, {students_created} new students, {payments_created} payments created',
+            'students_processed': success_count,
+            'students_created': students_created,
+            'payments_created': payments_created,
+            'errors': errors[:20],
+            'file_path': file_path
+        }, status=200)
+        
+    except Exception as e:
+        print(f"Server error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return JsonResponse({'error': f'Server error: {str(e)}'}, status=500)
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def upload_billing_excel(request):
+    """
+    Upload Excel file with billing rates
+    Expected columns: MONTH, DAYS, ELECTRIC_CHARGE, MESS_CHARGE, SERVICE_CHARGE, NET_DEMAND, COLLECTION, DATE
+    """
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Method not allowed'}, status=405)
+    
+    try:
+        if 'file' not in request.FILES:
+            return JsonResponse({'error': 'No file provided'}, status=400)
+        
+        excel_file = request.FILES['file']
+        
+        if not excel_file.name.endswith(('.xlsx', '.xls')):
+            return JsonResponse({'error': 'Invalid file format'}, status=400)
+        
+        df = pd.read_excel(excel_file)
+        
+        # Check for required columns (case insensitive)
+        df.columns = [col.strip().upper() for col in df.columns]
+        
+        required_columns = ['MONTH', 'DAYS', 'MESS_CHARGE', 'DATE']
+        missing_columns = [col for col in required_columns if col not in df.columns]
+        
+        if missing_columns:
+            return JsonResponse({'error': f'Missing columns: {missing_columns}'}, status=400)
+        
+        success_count = 0
+        for index, row in df.iterrows():
+            try:
+                date_value = pd.to_datetime(row['DATE']).date()
+                month_name = row['MONTH']
+                
+                billing_rate, created = BillingRate.objects.update_or_create(
+                    month=month_name,
+                    defaults={
+                        'days': int(row['DAYS']),
+                        'electric_charge': float(row.get('ELECTRIC_CHARGE', 0)),
+                        'mess_charge': float(row.get('MESS_CHARGE', 0)),
+                        'service_charge': float(row.get('SERVICE_CHARGE', 0)),
+                        'net_demand': float(row.get('NET_DEMAND', row.get('MESS_CHARGE', 0))),
+                        'collection': float(row.get('COLLECTION', row.get('MESS_CHARGE', 0))),
+                        'date': date_value
+                    }
+                )
+                success_count += 1
+                print(f"✅ {'Updated' if not created else 'Created'} billing rate for {month_name}")
+            except Exception as e:
+                print(f"Error row {index}: {e}")
+        
+        # Save uploaded file
+        file_path = default_storage.save(f'uploads/billing/{excel_file.name}', ContentFile(excel_file.read()))
+        
+        return JsonResponse({
+            'success': True,
+            'message': f'Uploaded {success_count} billing records',
+            'count': success_count,
+            'file_path': file_path
+        })
+        
+    except Exception as e:
+        print(f"Error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return JsonResponse({'error': str(e)}, status=500)
+    
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def get_student_billing(request):
+    """Get billing details for a student"""
+    try:
+        admission_no = request.GET.get('admission_no')
+        reg_no = request.GET.get('reg_no')
+        
+        # Find student
+        student = None
+        if admission_no:
+            student = Student.objects.filter(admission_no=admission_no).first()
+        elif reg_no:
+            student = Student.objects.filter(reg_no=reg_no).first()
+        
+        if not student:
+            return Response({'error': 'Student not found'}, status=404)
+        
+        # Get all mess payments for this student
+        mess_payments = MessPayment.objects.filter(
+            roll_no=student.reg_no
+        ).order_by('-date')
+        
+        billing_details = []
+        for payment in mess_payments:
+            billing_details.append({
+                'month': payment.month,
+                'days': payment.days_count,
+                'electric_charge': payment.billing_rate.electric_charge if payment.billing_rate else 0,
+                'mess_charge': payment.amount,
+                'service_charge': payment.billing_rate.service_charge if payment.billing_rate else 0,
+                'net_demand': payment.billing_rate.net_demand if payment.billing_rate else payment.amount,
+                'collection': payment.amount,
+                'date': payment.date.strftime('%Y-%m-%d'),
+                'transaction_id': payment.razorpay_payment_id,
+                'payment_time': payment.created_at.strftime('%Y-%m-%d %H:%M:%S') if payment.created_at else None,
+                'status': payment.status
+            })
+        
+        return Response({
+            'student': {
+                'name': student.full_name,
+                'admission_no': student.admission_no,
+                'reg_no': student.reg_no,
+                'room_no': student.room_no,
+                'class_yr': student.class_yr
+            },
+            'billing_history': billing_details,
+            'total_paid': sum(p.amount for p in mess_payments),
+            'total_months': len(billing_details)
+        })
+        
+    except Exception as e:
+        return Response({'error': str(e)}, status=500)
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def get_billing_rate_by_month(request):
+    """Get billing rate for a specific month"""
+    try:
+        month = request.GET.get('month')
+        
+        if not month:
+            return Response({'error': 'Month is required'}, status=400)
+        
+        billing_rate = BillingRate.objects.filter(month=month).first()
+        
+        if billing_rate:
+            return Response({
+                'success': True,
+                'days': billing_rate.days,
+                'electric_charge': billing_rate.electric_charge,
+                'mess_charge': billing_rate.mess_charge,
+                'service_charge': billing_rate.service_charge,
+                'net_demand': billing_rate.net_demand,
+                'collection': billing_rate.collection,
+                'date': billing_rate.date
+            })
+        else:
+            return Response({
+                'success': False,
+                'error': f'No billing rate found for {month}'
+            }, status=404)
+            
+    except Exception as e:
+        return Response({'error': str(e)}, status=500)
+    
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def check_month_paid(request):
+    """Check if a student has already paid for a specific month"""
+    try:
+        roll_no = request.GET.get('roll_no')
+        month = request.GET.get('month')
+        
+        if not roll_no or not month:
+            return Response({
+                'paid': False,
+                'error': 'Missing roll_no or month parameter'
+            }, status=400)
+        
+        # Check if payment exists for this student and month
+        payment_exists = MessPayment.objects.filter(
+            roll_no=roll_no,
+            month=month,
+            status='Success'
+        ).exists()
+        
+        return Response({
+            'paid': payment_exists,
+            'roll_no': roll_no,
+            'month': month
+        })
+        
+    except Exception as e:
+        print(f"Error checking month paid: {str(e)}")
+        return Response({
+            'paid': False,
+            'error': str(e)
+        }, status=500)
+    
+
+@csrf_exempt
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def upload_meta_hostel_excel(request):
+    """
+    Upload META Hostel Excel file with student data and monthly payments
+    Handles the exact format of your Excel file
+    """
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Method not allowed'}, status=405)
+    
+    try:
+        if 'file' not in request.FILES:
+            return JsonResponse({'error': 'No file provided'}, status=400)
+        
+        excel_file = request.FILES['file']
+        
+        if not excel_file.name.endswith(('.xlsx', '.xls')):
+            return JsonResponse({'error': 'Invalid file format. Please upload .xlsx or .xls file'}, status=400)
+        
+        # Read Excel file
+        df = pd.read_excel(excel_file, header=None)
+        
+        # Find the header row (row 3 in your Excel - index 2)
+        header_row = None
+        for idx in range(10):
+            row = df.iloc[idx]
+            if row.astype(str).str.contains('S.no').any() and row.astype(str).str.contains('Name of the Student').any():
+                header_row = idx
+                break
+        
+        if header_row is None:
+            return JsonResponse({'error': 'Could not find header row in Excel'}, status=400)
+        
+        print(f"Found header at row: {header_row}")
+        
+        # Get data rows
+        data_df = df.iloc[header_row + 1:].reset_index(drop=True)
+        
+        # Define month columns based on your Excel structure
+        month_columns = [
+            {'name': 'July 2024', 'days_col': 4, 'mess_col': 6, 'date_col': 10},
+            {'name': 'August 2024', 'days_col': 12, 'mess_col': 14, 'date_col': 18},
+            {'name': 'September 2024', 'days_col': 21, 'mess_col': 23, 'date_col': 27},
+            {'name': 'October 2024', 'days_col': 30, 'mess_col': 32, 'date_col': 36},
+            {'name': 'November 2024', 'days_col': 39, 'mess_col': 41, 'date_col': 45},
+            {'name': 'December 2024', 'days_col': 48, 'mess_col': 50, 'date_col': 54},
+            {'name': 'January 2025', 'days_col': 57, 'mess_col': 59, 'date_col': 63},
+            {'name': 'February 2025', 'days_col': 66, 'mess_col': 68, 'date_col': 72},
+            {'name': 'March 2025', 'days_col': 75, 'mess_col': 77, 'date_col': 81},
+            {'name': 'April 2025', 'days_col': 84, 'mess_col': 86, 'date_col': 90},
+            {'name': 'May 2025', 'days_col': 93, 'mess_col': 95, 'date_col': 99},
+        ]
+        
+        students_created = 0
+        students_updated = 0
+        payments_created = 0
+        errors = []
+        
+        for idx, row in data_df.iterrows():
+            try:
+                # Extract basic student info
+                s_no = row.iloc[0] if len(row) > 0 and pd.notna(row.iloc[0]) else None
+                student_name = str(row.iloc[1]).strip() if len(row) > 1 and pd.notna(row.iloc[1]) else ''
+                registration_no = str(row.iloc[2]).strip() if len(row) > 2 and pd.notna(row.iloc[2]) else ''
+                
+                # Skip empty rows or total rows
+                if not student_name or student_name == 'nan' or 'Total' in student_name:
+                    continue
+                
+                # Generate admission number
+                admission_no = registration_no if registration_no and registration_no != 'nan' else f"META{int(s_no) if s_no else idx:04d}"
+                reg_no = registration_no if registration_no and registration_no != 'nan' else admission_no
+                
+                # Check if student exists
+                student = Student.objects.filter(admission_no=admission_no).first()
+                
+                if student:
+                    students_updated += 1
+                    print(f"Updating existing student: {student_name}")
+                else:
+                    # Determine class year
+                    class_yr = "2nd Year"
+                    if registration_no and registration_no != 'nan':
+                        if registration_no.startswith('323'):
+                            class_yr = "2nd Year"
+                        elif registration_no.startswith('322'):
+                            class_yr = "3rd Year"
+                    
+                    # Create new student
+                    student = Student.objects.create(
+                        full_name=student_name,
+                        admission_no=admission_no,
+                        reg_no=reg_no,
+                        class_yr=class_yr,
+                        branch="CSE",
+                        mobile="",
+                        email=f"{reg_no}@au.edu.in" if reg_no != 'nan' else f"{admission_no}@au.edu.in",
+                        password=make_password(reg_no if reg_no != 'nan' else admission_no),
+                        amount="13250"
+                    )
+                    students_created += 1
+                    print(f"Created new student: {student_name} ({admission_no})")
+                
+                # Process monthly payments
+                for month_info in month_columns:
+                    try:
+                        mess_charge = row.iloc[month_info['mess_col']] if len(row) > month_info['mess_col'] else None
+                        days = row.iloc[month_info['days_col']] if len(row) > month_info['days_col'] else None
+                        payment_date = row.iloc[month_info['date_col']] if len(row) > month_info['date_col'] else None
+                        
+                        if mess_charge and pd.notna(mess_charge) and isinstance(mess_charge, (int, float)) and mess_charge > 0:
+                            
+                            existing_payment = MessPayment.objects.filter(
+                                roll_no=reg_no,
+                                month=month_info['name'],
+                                status='Success'
+                            ).first()
+                            
+                            if not existing_payment:
+                                payment_date_obj = None
+                                if payment_date and pd.notna(payment_date):
+                                    try:
+                                        if isinstance(payment_date, str):
+                                            payment_date_obj = datetime.strptime(payment_date.split()[0], '%Y-%m-%d').date()
+                                        else:
+                                            payment_date_obj = payment_date.date() if hasattr(payment_date, 'date') else payment_date
+                                    except:
+                                        payment_date_obj = datetime.now().date()
+                                else:
+                                    payment_date_obj = datetime.now().date()
+                                
+                                billing_rate, _ = BillingRate.objects.get_or_create(
+                                    month=month_info['name'],
+                                    defaults={
+                                        'days': int(days) if days and pd.notna(days) else 30,
+                                        'electric_charge': 0,
+                                        'mess_charge': float(mess_charge),
+                                        'service_charge': 0,
+                                        'net_demand': float(mess_charge),
+                                        'collection': float(mess_charge),
+                                        'date': payment_date_obj
+                                    }
+                                )
+                                
+                                MessPayment.objects.create(
+                                    student_name=student_name,
+                                    roll_no=reg_no,
+                                    room_no=student.room_no or "Not Allotted",
+                                    class_yr=student.class_yr or "2nd Year",
+                                    date=payment_date_obj,
+                                    month=month_info['name'],
+                                    amount=int(float(mess_charge)),
+                                    payment_mode="Online",
+                                    purpose="Mess Fee",
+                                    status="Success",
+                                    student=student,
+                                    billing_rate=billing_rate,
+                                    days_count=int(days) if days and pd.notna(days) else 0
+                                )
+                                payments_created += 1
+                                print(f"  ✅ Created payment for {month_info['name']}: ₹{mess_charge}")
+                            else:
+                                print(f"  ⏭️ Payment for {month_info['name']} already exists")
+                    
+                    except Exception as e:
+                        errors.append(f"Student {student_name}, Month {month_info['name']}: {str(e)}")
+                        print(f"Error processing month {month_info['name']}: {e}")
+                
+            except Exception as e:
+                errors.append(f"Row {idx + header_row + 2}: {str(e)}")
+                print(f"Error processing row {idx}: {e}")
+        
+        # Save uploaded file
+        file_path = default_storage.save(f'uploads/meta_hostel/{excel_file.name}', ContentFile(excel_file.read()))
+        
+        return JsonResponse({
+            'success': True,
+            'message': f'Upload completed! Students: {students_created} created, {students_updated} updated, Payments: {payments_created} created',
+            'students_created': students_created,
+            'students_updated': students_updated,
+            'payments_created': payments_created,
+            'errors': errors[:20],
+            'file_path': file_path
+        }, status=200)
+        
+    except Exception as e:
+        print(f"Error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return JsonResponse({'error': f'Server error: {str(e)}'}, status=500)
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def get_all_billing_rates(request):
+    """Get all billing rates for dropdown in mess payment"""
+    try:
+        billing_rates = BillingRate.objects.all().order_by('-date')
+        data = []
+        for rate in billing_rates:
+            data.append({
+                'month': rate.month,
+                'days': rate.days,
+                'mess_charge': float(rate.mess_charge),
+                'electric_charge': float(rate.electric_charge),
+                'service_charge': float(rate.service_charge),
+                'net_demand': float(rate.net_demand),
+                'collection': float(rate.collection),
+                'date': rate.date.strftime('%Y-%m-%d') if rate.date else None
+            })
+        return Response({
+            'success': True,
+            'data': data
+        })
+    except Exception as e:
+        print(f"Error in get_all_billing_rates: {str(e)}")
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=500)        

@@ -6,20 +6,20 @@ from django.conf.urls.static import static
 from . import views
 from .views import (
     RequestOTP, VerifyOTP, ResetPassword, 
-    get_student_hostel  # Make sure to import this function
+    get_student_hostel
 )
 
 urlpatterns = [
     # ========================
-    # JWT AUTHENTICATION ENDPOINTS (USE THESE FOR LOGIN)
+    # JWT AUTHENTICATION ENDPOINTS
     # ========================
-    path('register/', views.register, name='register'),  # JWT registration
-    path('login/', views.login, name='login'),  # JWT login - Supports admission number!
-    path('token/refresh/', views.refresh_token, name='token_refresh'),  # Refresh JWT
-    path('logout/', views.logout, name='logout'),  # Logout
+    path('register/', views.register, name='register'),
+    path('login/', views.login, name='login'),
+    path('token/refresh/', views.refresh_token, name='token_refresh'),
+    path('logout/', views.logout, name='logout'),
     
     # ========================
-    # LEGACY AUTHENTICATION ENDPOINTS (Keep for compatibility)
+    # LEGACY AUTHENTICATION ENDPOINTS
     # ========================
     path('register-student/', views.register_student, name='register_student'),
     path('student-login/', views.student_login, name='student_login'),
@@ -90,10 +90,27 @@ urlpatterns = [
     path('room-availability/<int:room_id>/', views.get_room_availability, name='room_availability'),
     
     # ========================
-    # HOSTEL INFO ENDPOINT (CRITICAL FOR CERTIFICATES)
+    # HOSTEL INFO ENDPOINT
     # ========================
     path('get-student-hostel/', get_student_hostel, name='get_student_hostel'),
-     path('receipt/<str:receipt_id>/', views.download_mess_receipt, name='download_receipt'),
+    path('receipt/<str:receipt_id>/', views.download_mess_receipt, name='download_receipt'),
+    path('update-months/', views.update_months, name='update-months'),
+    path('check-no-dues/', views.check_no_dues, name='check_no_dues'),
+    path('upload-excel/', views.upload_excel),
+    
+    # ========================
+    # BILLING ENDPOINTS (ADD THESE)
+    # ========================
+    path('upload-billing-excel/', views.upload_billing_excel, name='upload_billing_excel'),
+    path('get-student-billing/', views.get_student_billing, name='get_student_billing'),
+    path('get-billing-rate-by-month/', views.get_billing_rate_by_month, name='get_billing_rate_by_month'),
+    path('check-month-paid/', views.check_month_paid, name='check_month_paid'),
+    path('get-all-billing-rates/', views.get_all_billing_rates, name='get_all_billing_rates'),  # ✅ This line
+    
+    # ========================
+    # EXCEL UPLOAD ENDPOINT
+    # ========================
+    path('upload-meta-excel/', views.upload_meta_hostel_excel, name='upload_meta_excel'),
 ]
 
 if settings.DEBUG:

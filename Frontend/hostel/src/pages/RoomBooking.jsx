@@ -180,7 +180,28 @@ const RoomBooking = () => {
       );
       
       console.log("✅ Rooms loaded from DB:", response.data);
-      setRealRooms(response.data);
+      
+      // ✅ FIX: Sort rooms numerically by room number
+      const sortedRooms = [...response.data].sort((a, b) => {
+        // Extract numeric values from room numbers
+        const numA = parseInt(a.room_number);
+        const numB = parseInt(b.room_number);
+        
+        // If both are valid numbers, sort numerically
+        if (!isNaN(numA) && !isNaN(numB)) {
+          return numA - numB;
+        }
+        
+        // Handle non-numeric room numbers (like W1, CH1, etc.)
+        // Put non-numeric rooms at the end
+        if (isNaN(numA) && !isNaN(numB)) return 1;
+        if (!isNaN(numA) && isNaN(numB)) return -1;
+        
+        // Fallback to string comparison
+        return String(a.room_number).localeCompare(String(b.room_number));
+      });
+      
+      setRealRooms(sortedRooms);
       
     } catch (error) {
       console.error("❌ Error loading rooms:", error.response?.data || error.message);
@@ -191,7 +212,6 @@ const RoomBooking = () => {
         return;
       }
       
-      // Clear rooms on error
       setRealRooms([]);
     } finally {
       setLoading(false);

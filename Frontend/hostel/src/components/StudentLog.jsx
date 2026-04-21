@@ -57,12 +57,16 @@ function StudentLog() {
       if (response.data.success) {
         const userData = response.data.user;
         
-        // Store user data
+        // Store user data with consistent key names
         localStorage.setItem('isLoggedIn', 'true');
         localStorage.setItem('user', JSON.stringify(userData));
         localStorage.setItem('student_name', userData.full_name);
-        localStorage.setItem('admission_no', userData.admission_number);
-        localStorage.setItem('reg_no', userData.admission_number);
+        
+        // FIX: Store both admission_no and reg_no (use the same value for both)
+        localStorage.setItem('admission_no', userData.admission_number); // Changed from admission_number to admission_no
+        localStorage.setItem('reg_no', userData.admission_number); // Using admission_number for reg_no too
+        localStorage.setItem('admission_number', userData.admission_number); // Keep original for compatibility
+        
         localStorage.setItem('email', userData.email);
         localStorage.setItem('phone', userData.phone_number || '');
         localStorage.setItem('student', 'true');
@@ -71,8 +75,18 @@ function StudentLog() {
         localStorage.setItem('access_token', response.data.access);
         localStorage.setItem('refresh_token', response.data.refresh);
         
+        console.log('Stored admission_no:', localStorage.getItem('admission_no'));
+        console.log('Stored reg_no:', localStorage.getItem('reg_no'));
         console.log('Login successful! Redirecting to profile...');
-        navigate('/profile');
+        
+        // Option 1: Pass data through navigation state
+        navigate('/profile', { 
+          state: { 
+            studentData: userData,
+            admission_no: userData.admission_number,
+            reg_no: userData.admission_number
+          } 
+        });
       } else {
         setError(response.data.error || 'Login failed');
       }
