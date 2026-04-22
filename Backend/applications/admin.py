@@ -4,7 +4,7 @@ from django.contrib.auth.models import User
 from django.contrib.auth.admin import UserAdmin
 from .models import (
     HostelApplication, StudentProfile, Block, Floor, Room, Booking, Profile, Payment,
-    MessPayment, Student, Certificate, StudentRegistration, BillingRate, StudentBilling,
+    MessPayment, Student, Certificate, StudentRegistration, BillingRate, StudentBilling,AdminWardenUser,
 )
 
 # ========================
@@ -157,3 +157,10 @@ class StudentBillingAdmin(admin.ModelAdmin):
     list_display = ['student', 'month', 'amount_paid', 'payment_status']
     search_fields = ['student__full_name', 'student__admission_no', 'month']
     list_filter = ['payment_status', 'month']
+
+
+@admin.register(AdminWardenUser)
+class AdminWardenUserAdmin(admin.ModelAdmin):
+    list_display = ['username', 'email', 'role']
+    search_fields = ['username', 'email']
+    list_filter = ['role']

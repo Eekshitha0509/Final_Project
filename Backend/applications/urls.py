@@ -111,6 +111,7 @@ urlpatterns = [
     # EXCEL UPLOAD ENDPOINT
     # ========================
     path('upload-meta-excel/', views.upload_meta_hostel_excel, name='upload_meta_excel'),
+   
 ]
 
 if settings.DEBUG:

@@ -267,8 +267,8 @@ class Student(models.Model):
     aadhar = models.CharField(max_length=12, blank=True, null=True)
     admission_no = models.CharField(max_length=20, unique=True)
     reg_no = models.CharField(max_length=20, null=True, blank=True)
-    class_yr = models.CharField(max_length=10, blank=True, null=True)
-    branch = models.CharField(max_length=50, blank=True, null=True)
+    class_yr = models.CharField(max_length=50, blank=True, null=True)
+    branch = models.CharField(max_length=100, blank=True, null=True)
     roll_no = models.CharField(max_length=20, blank=True, null=True)
     dob = models.DateField(blank=True, null=True)
     mobile = models.CharField(max_length=15)
@@ -278,6 +278,7 @@ class Student(models.Model):
     catering = models.CharField(max_length=20, blank=True, null=True)
     amount = models.CharField(max_length=10, default="13000")
     student_photo = models.ImageField(upload_to="students/photos/", null=True, blank=True)
+    password = models.CharField(max_length=255, blank=True, null=True)
     
     # Hostel related fields (from first model)
     months_stayed = models.IntegerField(default=0)
@@ -299,9 +300,10 @@ class Student(models.Model):
 
     created_at = models.DateTimeField(auto_now_add=True)
     block = models.CharField(max_length=100, blank=True, null=True, default="Not Allotted")
-    room_no = models.CharField(max_length=20, blank=True, null=True, default="Not Allotted")
+    room_no = models.CharField(max_length=50, blank=True, null=True, default="Not Allotted")
     hostel_name = models.CharField(max_length=100, blank=True, null=True)
     degree = models.CharField(max_length=10, choices=DEGREE_CHOICES, null=True, blank=True)
+    password = models.CharField(max_length=255, blank=True, null=True)
 
     def __str__(self):
         return f"{self.full_name} ({self.admission_no})"
@@ -387,10 +389,10 @@ class MessPayment(models.Model):
     receipt_no = models.AutoField(primary_key=True)
     student_name = models.CharField(max_length=100)
     roll_no = models.CharField(max_length=20)
-    room_no = models.CharField(max_length=10)
-    class_yr = models.CharField(max_length=20)
+    room_no = models.CharField(max_length=50)
+    class_yr = models.CharField(max_length=50)
     date = models.DateField()
-    month = models.CharField(max_length=20)
+    month = models.CharField(max_length=50)
     amount = models.IntegerField()
     payment_mode = models.CharField(max_length=20)
     purpose = models.CharField(max_length=50, default="Mess Payment")
