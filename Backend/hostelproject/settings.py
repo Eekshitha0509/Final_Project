@@ -115,11 +115,11 @@ WSGI_APPLICATION = 'hostelproject.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'hostel_db',
-        'USER': 'postgres',
-        'PASSWORD': 'postgres',
-        'HOST': 'localhost',
-        'PORT': '5432',
+        'NAME': 'AU_HOSTELS',
+        'USER' : 'postgres',
+        'PASSWORD' : 'root123',
+        'HOST' : 'localhost',
+        'PORT' : '5432',
     }
 }
 

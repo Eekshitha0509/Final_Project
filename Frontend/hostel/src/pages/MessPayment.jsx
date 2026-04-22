@@ -397,7 +397,7 @@ function MessFeePayment() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-100 to-slate-200 py-10 px-4">
-      <div className="max-w-4xl mx-auto bg-white rounded-2xl shadow-xl border overflow-hidden">
+      <div className="max-w-5xl mx-auto bg-white shadow-2xl rounded-lg border-t-8 border-[#002147] relative px-6">
         {/* University Header */}
         <div className="bg-gradient-to-r from-[#002147] to-[#003366] p-6 text-center text-white">
           <h1 className="text-lg font-bold text-yellow-400 uppercase tracking-widest">Andhra University</h1>

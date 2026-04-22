@@ -66,7 +66,7 @@ function AdminLog() {
   };
 
   return (
-    <div className="flex justify-center items-center min-h-screen bg-gradient-to-br from-blue-50 to-slate-100 px-4">
+    <div className="flex justify-center items-center min-h-screen bg-gradient-to-br from-blue-50 px-4">
       <form 
         onSubmit={handleLogin}
         className="bg-white p-8 md:p-10 rounded-2xl shadow-2xl border border-slate-100 w-full max-w-md flex flex-col gap-6 transform transition-all duration-300 hover:shadow-3xl"

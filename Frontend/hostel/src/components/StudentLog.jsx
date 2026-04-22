@@ -116,7 +116,7 @@ function StudentLog() {
   };
 
   return (
-    <div className="flex justify-center items-center min-h-screen bg-slate-100 px-4">
+    <div className="flex justify-center items-center min-h-screen px-4">
       <form 
         onSubmit={handleLogin} 
         className="bg-white p-8 rounded-2xl shadow-xl border border-slate-200 w-full max-w-md flex flex-col gap-4"

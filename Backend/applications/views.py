@@ -1069,82 +1069,57 @@ def student_login(request):
 
 # ==================== ADMIN LOGIN ====================
 
-@csrf_exempt
+from django.contrib.auth.hashers import check_password
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from rest_framework import status
+from applications.models import AdminWardenUser
+from rest_framework_simplejwt.tokens import RefreshToken
+
 @api_view(['POST'])
-@permission_classes([AllowAny])
 def admin_login(request):
-    """Admin login with JWT"""
+    print("=" * 50)
+    print("Admin login request received")
+
+    admin_id = request.data.get("admin_id")
+    password = request.data.get("password")
+
+    print("Admin ID:", admin_id)
+
+    if not admin_id or not password:
+        return Response({
+            "error": "Both admin ID and password are required"
+        }, status=status.HTTP_400_BAD_REQUEST)
+
     try:
-        print("=" * 50)
-        print("Admin login request received")
-        
-        admin_id = None
-        password = None
-        
-        # Parse request body
-        if request.body:
-            try:
-                if isinstance(request.body, bytes):
-                    body_str = request.body.decode('utf-8')
-                else:
-                    body_str = str(request.body)
-                
-                if body_str.startswith('"') and body_str.endswith('"'):
-                    body_str = body_str[1:-1]
-                
-                body_str = body_str.replace('\\"', '"')
-                body_str = body_str.replace('\n', '').replace('\r', '').strip()
-                
-                data = json.loads(body_str)
-                admin_id = data.get("admin_id")
-                password = data.get("password")
-                
-            except json.JSONDecodeError as e:
-                print(f"JSON decode error: {e}")
-                if hasattr(request, 'data') and request.data:
-                    if isinstance(request.data, dict):
-                        admin_id = request.data.get("admin_id")
-                        password = request.data.get("password")
-        
-        if not admin_id or not password:
-            admin_id = request.POST.get("admin_id")
-            password = request.POST.get("password")
-        
-        print(f"Admin ID: {admin_id}")
-        
-        if not admin_id or not password:
-            return Response({
-                "error": "Both admin ID and password are required"
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
-        user = authenticate(username=admin_id, password=password)
-        
-        if user and user.is_superuser:
-            refresh = RefreshToken.for_user(user)
-            
+        user = AdminWardenUser.objects.get(username=admin_id)
+
+        # 🔥 IMPORTANT FIX
+        if check_password(password, user.password):
+
+            # ⚠️ Since this is NOT Django User, we fake token payload
+            refresh = RefreshToken()
+            refresh['username'] = user.username
+            refresh['role'] = user.role
+
             return Response({
                 "status": "success",
-                "message": "Admin login successful",
-                "admin": user.username,
+                "message": "Login successful",
+                "username": user.username,
+                "role": user.role,
                 "access": str(refresh.access_token),
                 "refresh": str(refresh)
             }, status=status.HTTP_200_OK)
-        
-        if user and not user.is_superuser:
+
+        else:
             return Response({
-                "error": "Access denied. Not an admin account."
-            }, status=status.HTTP_403_FORBIDDEN)
-        
+                "error": "Invalid password"
+            }, status=status.HTTP_401_UNAUTHORIZED)
+
+    except AdminWardenUser.DoesNotExist:
         return Response({
-            "error": "Invalid admin credentials"
+            "error": "User not found"
         }, status=status.HTTP_401_UNAUTHORIZED)
-        
-    except Exception as e:
-        print(f"Admin login error: {str(e)}")
-        print(traceback.format_exc())
-        return Response({
-            "error": f"Server error: {str(e)}"
-        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 # ==================== PROFILE SUBMISSION ====================
 
@@ -1357,7 +1332,7 @@ def get_student_profile(request):
             # Prepare response
             response_data = {
                 'full_name': student_data.full_name,
-                'aadhar': student_data.aadhar,
+                'aadhar_no': student_data.aadhar,
                 'admission_no': student_data.admission_no,
                 'reg_no': student_data.reg_no,
                 'class_yr': student_data.class_yr,

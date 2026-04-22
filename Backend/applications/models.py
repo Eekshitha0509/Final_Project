@@ -257,10 +257,11 @@ class Payment(models.Model):
 
 class Student(models.Model):
     DEGREE_CHOICES = [
-        ('B.Tech', 'B.Tech'),
-        ('M.Tech', 'M.Tech'),
-        ('MSc', 'M.Sc'),
-    ]
+    ('BTECH', 'B.Tech'),
+    ('MTECH', 'M.Tech'),
+    ('MSC', 'M.Sc'),
+    ('DUAL', 'B.Tech + M.Tech'),
+]
      
     full_name = models.CharField(max_length=100)
     aadhar = models.CharField(max_length=12, blank=True, null=True)
@@ -429,4 +430,16 @@ class PasswordResetOTP(models.Model):
     def __str__(self):
         return f"OTP for {self.user.email} - {self.otp} - Valid: {self.is_valid()}"
 
+class AdminWardenUser(models.Model):
+    ROLE_CHOICES = [
+        ('admin', 'Admin'),
+        ('warden', 'Warden'),
+    ]
+    
+    username = models.CharField(max_length=50, unique=True)
+    email = models.EmailField(unique=True)
+    password = models.CharField(max_length=255)  # Will store hashed passwords
+    role = models.CharField(max_length=10, choices=ROLE_CHOICES)
 
+    def __str__(self):
+        return f"{self.username} ({self.role})"
