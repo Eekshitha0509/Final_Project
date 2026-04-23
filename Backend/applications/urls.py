@@ -1,4 +1,4 @@
-# applications/urls.py - COMPLETE WORKING VERSION
+# applications/urls.py - COMPLETE WORKING VERSION with New Mess Payment URLs
 
 from django.urls import path
 from django.conf import settings
@@ -6,7 +6,11 @@ from django.conf.urls.static import static
 from . import views
 from .views import (
     RequestOTP, VerifyOTP, ResetPassword, 
-    get_student_hostel
+    get_student_hostel,
+    # NEW IMPORTS - Add these three
+    create_mess_payment_order, 
+    verify_mess_payment, 
+    get_available_months_for_payment
 )
 
 urlpatterns = [
@@ -67,11 +71,18 @@ urlpatterns = [
     path('payments/webhook/', views.razorpay_webhook, name='razorpay-webhook'),
     
     # ========================
-    # MESS PAYMENT ENDPOINTS
+    # MESS PAYMENT ENDPOINTS (Legacy)
     # ========================
     path('mess-payment/', views.mess_payment, name='mess_payment'),
     path('create-order/', views.create_order, name='create_order'),
     path('verify-payment/', views.verify_payment, name='verify_payment'),
+    
+    # ========================
+    # NEW MESS PAYMENT ENDPOINTS (ADD HERE - Using NET DEMAND from BillingRate)
+    # ========================
+    path('mess/create-order/', create_mess_payment_order, name='create_mess_payment_order'),
+    path('mess/verify-payment/', verify_mess_payment, name='verify_mess_payment'),
+    path('mess/available-months/<str:student_id>/', get_available_months_for_payment, name='available_months'),
     
     # ========================
     # CERTIFICATE ENDPOINTS
@@ -99,19 +110,18 @@ urlpatterns = [
     path('upload-excel/', views.upload_excel),
     
     # ========================
-    # BILLING ENDPOINTS (ADD THESE)
+    # BILLING ENDPOINTS
     # ========================
     path('upload-billing-excel/', views.upload_billing_excel, name='upload_billing_excel'),
     path('get-student-billing/', views.get_student_billing, name='get_student_billing'),
     path('get-billing-rate-by-month/', views.get_billing_rate_by_month, name='get_billing_rate_by_month'),
     path('check-month-paid/', views.check_month_paid, name='check_month_paid'),
-    path('get-all-billing-rates/', views.get_all_billing_rates, name='get_all_billing_rates'),  # ✅ This line
+    path('get-all-billing-rates/', views.get_all_billing_rates, name='get_all_billing_rates'),
     
     # ========================
     # EXCEL UPLOAD ENDPOINT
     # ========================
     path('upload-meta-excel/', views.upload_meta_hostel_excel, name='upload_meta_excel'),
-   
 ]
 
 if settings.DEBUG:

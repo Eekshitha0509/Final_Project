@@ -14,6 +14,7 @@ urlpatterns = [
     
     # Include all application URLs
     path('api/', include('applications.urls')),
+   
 ]
 
 if settings.DEBUG:

@@ -405,6 +405,8 @@ class MessPayment(models.Model):
     student = models.ForeignKey(Student, on_delete=models.SET_NULL, null=True, blank=True, related_name='mess_payments')
     billing_rate = models.ForeignKey(BillingRate, on_delete=models.SET_NULL, null=True, blank=True)
     days_count = models.IntegerField(default=0)
+    is_actual_payment = models.BooleanField(default=False)  # True = student really paid online
+    payment_source = models.CharField(max_length=20, default='excel_import')  # 'excel_import' or 'online_payment'
     
     def __str__(self):
         return f"{self.student_name} - {self.month} - {self.status}"

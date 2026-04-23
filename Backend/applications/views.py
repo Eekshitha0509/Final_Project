@@ -1,4 +1,4 @@
-# applications/views.py - COMPLETE FIXED VERSION
+# applications/views.py - COMPLETE FIXED VERSION with New Mess Payment Functions
 
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
@@ -44,7 +44,7 @@ import pandas as pd
 from django.core.files.storage import default_storage
 from django.core.files.base import ContentFile
 from .models import BillingRate, StudentBilling
-from django.db.models import Sum
+from django.db.models import Sum, Q
 
 # Initialize Razorpay client
 razorpay_client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
@@ -1664,6 +1664,255 @@ def mess_payment(request):
         return Response({"error": "Internal Server Error"}, status=500)
 
 
+# ==================== NEW MESS PAYMENT VIEWS (ADDED HERE) ====================
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def create_mess_payment_order(request):
+    """
+    Create Razorpay order for Mess Payment
+    Amount is taken from BillingRate.net_demand for the selected month
+    """
+    try:
+        month = request.data.get('month')
+        student_id = request.data.get('student_id')  # admission_no or reg_no
+        
+        if not month or not student_id:
+            return Response({
+                'success': False,
+                'error': 'Month and student ID are required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Get student
+        student = Student.objects.filter(
+            Q(admission_no=student_id) | Q(reg_no=student_id)
+        ).first()
+        
+        if not student:
+            return Response({
+                'success': False,
+                'error': 'Student not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        # Get billing rate for the month
+        billing_rate = BillingRate.objects.filter(month=month).first()
+        
+        if not billing_rate:
+            return Response({
+                'success': False,
+                'error': f'No billing rate found for {month}. Please contact admin.'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        # Check if already paid for this month
+        existing_payment = MessPayment.objects.filter(
+            roll_no=student.reg_no,
+            month=month,
+            status='Success',
+            is_actual_payment=True
+        ).exists()
+        
+        if existing_payment:
+            return Response({
+                'success': False,
+                'error': f'You have already paid for {month}'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Amount to pay = NET DEMAND from billing rate
+        amount_to_pay = int(float(billing_rate.net_demand))
+        
+        # Create Razorpay order
+        order_amount = amount_to_pay * 100  # in paise
+        order_currency = 'INR'
+        
+        order_data = {
+            'amount': order_amount,
+            'currency': order_currency,
+            'receipt': f'mess_{student.reg_no}_{month.replace(" ", "_")}',
+            'payment_capture': 1,
+            'notes': {
+                'student_reg_no': student.reg_no,
+                'student_name': student.full_name,
+                'month': month,
+                'payment_type': 'mess_fee'
+            }
+        }
+        
+        razorpay_order = razorpay_client.order.create(data=order_data)
+        
+        # Create a pending payment record
+        payment = MessPayment.objects.create(
+            student_name=student.full_name,
+            roll_no=student.reg_no,
+            room_no=student.room_no or "Not Allotted",
+            class_yr=student.class_yr or "",
+            date=timezone.now().date(),
+            month=month,
+            amount=amount_to_pay,
+            payment_mode="Online",
+            purpose="Mess Fee",
+            razorpay_order_id=razorpay_order['id'],
+            status="Pending",  # ← Pending until verified
+            is_actual_payment=True,  # ← This is a real student payment
+            payment_source='online_payment',
+            student=student,
+            billing_rate=billing_rate,
+            days_count=billing_rate.days
+        )
+        
+        return Response({
+            'success': True,
+            'order_id': razorpay_order['id'],
+            'amount': razorpay_order['amount'],
+            'currency': razorpay_order['currency'],
+            'key_id': settings.RAZORPAY_KEY_ID,
+            'payment_id': payment.receipt_no,
+            'month': month,
+            'net_demand': amount_to_pay,
+            'days': billing_rate.days,
+            'student_name': student.full_name,
+            'student_email': student.email,
+            'student_phone': student.mobile
+        })
+        
+    except Exception as e:
+        print(f"Error creating mess payment order: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def verify_mess_payment(request):
+    """
+    Verify Razorpay payment for Mess Fee
+    Only after successful verification, payment status becomes 'Success'
+    """
+    try:
+        razorpay_order_id = request.data.get('razorpay_order_id')
+        razorpay_payment_id = request.data.get('razorpay_payment_id')
+        razorpay_signature = request.data.get('razorpay_signature')
+        
+        # Verify signature
+        params_dict = {
+            'razorpay_order_id': razorpay_order_id,
+            'razorpay_payment_id': razorpay_payment_id,
+            'razorpay_signature': razorpay_signature
+        }
+        
+        try:
+            razorpay_client.utility.verify_payment_signature(params_dict)
+        except razorpay.errors.SignatureVerificationError:
+            return Response({
+                'success': False,
+                'error': 'Invalid payment signature'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Get the pending payment record
+        payment = MessPayment.objects.filter(
+            razorpay_order_id=razorpay_order_id,
+            status='Pending'
+        ).first()
+        
+        if not payment:
+            return Response({
+                'success': False,
+                'error': 'Payment record not found or already processed'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        # Update payment as SUCCESS (only now!)
+        payment.razorpay_payment_id = razorpay_payment_id
+        payment.status = 'Success'  # ← Only marked Success after real payment
+        payment.save()
+        
+        return Response({
+            'success': True,
+            'message': 'Payment verified successfully',
+            'receipt_no': payment.receipt_no,
+            'student_name': payment.student_name,
+            'month': payment.month,
+            'amount': payment.amount,
+            'status': payment.status
+        })
+        
+    except Exception as e:
+        print(f"Error verifying mess payment: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_available_months_for_payment(request, student_id):
+    """
+    Get months that student hasn't paid yet
+    """
+    try:
+        # Get student
+        student = Student.objects.filter(
+            Q(admission_no=student_id) | Q(reg_no=student_id)
+        ).first()
+        
+        if not student:
+            return Response({
+                'success': False,
+                'error': 'Student not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        # Get all billing rates
+        all_months = BillingRate.objects.all().order_by('-date')
+        
+        # Get paid months (only successful real payments)
+        paid_months = MessPayment.objects.filter(
+            roll_no=student.reg_no,
+            status='Success',
+            is_actual_payment=True
+        ).values_list('month', flat=True)
+        
+        # Available months = all months - paid months
+        available_months = []
+        for billing_rate in all_months:
+            if billing_rate.month not in paid_months:
+                available_months.append({
+                    'month': billing_rate.month,
+                    'days': billing_rate.days,
+                    'net_demand': float(billing_rate.net_demand),
+                    'electric_charge': float(billing_rate.electric_charge),
+                    'mess_charge': float(billing_rate.mess_charge),
+                    'service_charge': float(billing_rate.service_charge)
+                })
+        
+        return Response({
+            'success': True,
+            'student': {
+                'name': student.full_name,
+                'reg_no': student.reg_no,
+                'admission_no': student.admission_no
+            },
+            'paid_months': list(paid_months),
+            'available_months': available_months,
+            'total_paid': MessPayment.objects.filter(
+                roll_no=student.reg_no,
+                status='Success',
+                is_actual_payment=True
+            ).aggregate(total=Sum('amount'))['total'] or 0
+        })
+        
+    except Exception as e:
+        print(f"Error getting available months: {str(e)}")
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=500)
+
+
 # ==================== CERTIFICATE VIEW ====================
 
 @api_view(['POST'])
@@ -2352,11 +2601,18 @@ def upload_excel(request):
         return JsonResponse({'error': f'Server error: {str(e)}'}, status=500)
 
 
+# applications/views.py - REPLACE your upload_meta_hostel_excel with this
+
 @csrf_exempt
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def upload_meta_hostel_excel(request):
-    """Upload META Hostel Excel file with student data and monthly payments"""
+    """
+    UPLOAD EXCEL FOR BILLING RATES ONLY
+    This creates/updates BillingRate records.
+    It does NOT create MessPayment records.
+    MessPayment is created ONLY when student pays online.
+    """
     if request.method != 'POST':
         return JsonResponse({'error': 'Method not allowed'}, status=405)
     
@@ -2373,9 +2629,10 @@ def upload_meta_hostel_excel(request):
         
         # Find header row
         header_row = None
-        for idx in range(10):
+        for idx in range(min(15, len(df))):
             row = df.iloc[idx]
-            if row.astype(str).str.contains('S.no').any() and row.astype(str).str.contains('Name of the Student').any():
+            row_str = row.astype(str).str.lower().str.strip()
+            if row_str.str.contains('s.no').any() and row_str.str.contains('name of the student').any():
                 header_row = idx
                 break
         
@@ -2386,156 +2643,96 @@ def upload_meta_hostel_excel(request):
         
         data_df = df.iloc[header_row + 1:].reset_index(drop=True)
         
-        # Define month columns with net demand column
+        # Define month columns with correct indices
+        # Adjust these indices based on your Excel structure
         month_columns = [
-            {'name': 'July 2024', 'days_col': 4, 'mess_col': 6, 'net_demand_col': 8, 'date_col': 10},
-            {'name': 'August 2024', 'days_col': 12, 'mess_col': 14, 'net_demand_col': 16, 'date_col': 18},
-            {'name': 'September 2024', 'days_col': 21, 'mess_col': 23, 'net_demand_col': 25, 'date_col': 27},
-            {'name': 'October 2024', 'days_col': 30, 'mess_col': 32, 'net_demand_col': 34, 'date_col': 36},
-            {'name': 'November 2024', 'days_col': 39, 'mess_col': 41, 'net_demand_col': 43, 'date_col': 45},
-            {'name': 'December 2024', 'days_col': 48, 'mess_col': 50, 'net_demand_col': 52, 'date_col': 54},
-            {'name': 'January 2025', 'days_col': 57, 'mess_col': 59, 'net_demand_col': 61, 'date_col': 63},
-            {'name': 'February 2025', 'days_col': 66, 'mess_col': 68, 'net_demand_col': 70, 'date_col': 72},
-            {'name': 'March 2025', 'days_col': 75, 'mess_col': 77, 'net_demand_col': 79, 'date_col': 81},
-            {'name': 'April 2025', 'days_col': 84, 'mess_col': 86, 'net_demand_col': 88, 'date_col': 90},
-            {'name': 'May 2025', 'days_col': 93, 'mess_col': 95, 'net_demand_col': 97, 'date_col': 99},
+            {'name': 'July 2024', 'days_col': 4, 'electric_col': 5, 'mess_col': 6, 'service_col': 7, 'net_demand_col': 8, 'date_col': 10},
+            {'name': 'August 2024', 'days_col': 12, 'electric_col': 13, 'mess_col': 14, 'service_col': 15, 'net_demand_col': 16, 'date_col': 18},
+            {'name': 'September 2024', 'days_col': 21, 'electric_col': 22, 'mess_col': 23, 'service_col': 24, 'net_demand_col': 25, 'date_col': 27},
+            {'name': 'October 2024', 'days_col': 30, 'electric_col': 31, 'mess_col': 32, 'service_col': 33, 'net_demand_col': 34, 'date_col': 36},
+            {'name': 'November 2024', 'days_col': 39, 'electric_col': 40, 'mess_col': 41, 'service_col': 42, 'net_demand_col': 43, 'date_col': 45},
+            {'name': 'December 2024', 'days_col': 48, 'electric_col': 49, 'mess_col': 50, 'service_col': 51, 'net_demand_col': 52, 'date_col': 54},
+            {'name': 'January 2025', 'days_col': 57, 'electric_col': 58, 'mess_col': 59, 'service_col': 60, 'net_demand_col': 61, 'date_col': 63},
+            {'name': 'February 2025', 'days_col': 66, 'electric_col': 67, 'mess_col': 68, 'service_col': 69, 'net_demand_col': 70, 'date_col': 72},
+            {'name': 'March 2025', 'days_col': 75, 'electric_col': 76, 'mess_col': 77, 'service_col': 78, 'net_demand_col': 79, 'date_col': 81},
+            {'name': 'April 2025', 'days_col': 84, 'electric_col': 85, 'mess_col': 86, 'service_col': 87, 'net_demand_col': 88, 'date_col': 90},
+            {'name': 'May 2025', 'days_col': 93, 'electric_col': 94, 'mess_col': 95, 'service_col': 96, 'net_demand_col': 97, 'date_col': 99},
         ]
         
-        students_created = 0
-        students_updated = 0
-        payments_created = 0
-        payments_updated = 0
+        billing_rates_created = 0
+        billing_rates_updated = 0
         errors = []
         
-        for idx, row in data_df.iterrows():
+        # Process each month's billing rate
+        for month_info in month_columns:
             try:
-                s_no = row.iloc[0] if len(row) > 0 and pd.notna(row.iloc[0]) else None
-                student_name = str(row.iloc[1]).strip() if len(row) > 1 and pd.notna(row.iloc[1]) else ''
-                registration_no = str(row.iloc[2]).strip() if len(row) > 2 and pd.notna(row.iloc[2]) else ''
+                # Get values from the first data row (assuming billing rates are same for all students)
+                # You may need to adjust this - maybe take average or first non-null value
+                first_row = data_df.iloc[0] if len(data_df) > 0 else None
                 
-                if not student_name or student_name == 'nan' or 'Total' in student_name:
+                if first_row is None:
                     continue
                 
-                admission_no = registration_no if registration_no and registration_no != 'nan' else f"META{int(s_no) if s_no else idx:04d}"
-                reg_no = registration_no if registration_no and registration_no != 'nan' else admission_no
+                days = first_row.iloc[month_info['days_col']] if len(first_row) > month_info['days_col'] else None
+                electric_charge = first_row.iloc[month_info['electric_col']] if len(first_row) > month_info['electric_col'] else None
+                mess_charge = first_row.iloc[month_info['mess_col']] if len(first_row) > month_info['mess_col'] else None
+                service_charge = first_row.iloc[month_info['service_col']] if len(first_row) > month_info['service_col'] else None
+                net_demand = first_row.iloc[month_info['net_demand_col']] if len(first_row) > month_info['net_demand_col'] else None
+                date_value = first_row.iloc[month_info['date_col']] if len(first_row) > month_info['date_col'] else None
                 
-                # Check if student exists
-                student = Student.objects.filter(admission_no=admission_no).first()
+                # Skip if no valid net demand
+                if net_demand is None or pd.isna(net_demand):
+                    print(f"⚠️ No net demand for {month_info['name']}, skipping")
+                    continue
                 
-                if student:
-                    students_updated += 1
-                    print(f"Updating existing student: {student_name}")
+                # Convert to proper types
+                days_val = int(days) if days and pd.notna(days) else 0
+                electric_val = float(electric_charge) if electric_charge and pd.notna(electric_charge) else 0
+                mess_val = float(mess_charge) if mess_charge and pd.notna(mess_charge) else 0
+                service_val = float(service_charge) if service_charge and pd.notna(service_charge) else 0
+                net_demand_val = float(net_demand) if net_demand and pd.notna(net_demand) else 0
+                date_obj = parse_excel_date(date_value)
+                
+                # Check if billing rate already exists
+                existing_rate = BillingRate.objects.filter(month=month_info['name']).first()
+                
+                # Create or update BillingRate ONLY
+                billing_rate, created = BillingRate.objects.update_or_create(
+                    month=month_info['name'],
+                    defaults={
+                        'days': days_val,
+                        'electric_charge': electric_val,
+                        'mess_charge': mess_val,
+                        'service_charge': service_val,
+                        'net_demand': net_demand_val,  # ← This is what student will pay
+                        'collection': net_demand_val,  # Collection amount
+                        'date': date_obj
+                    }
+                )
+                
+                if created:
+                    billing_rates_created += 1
+                    print(f"✅ CREATED billing rate for {month_info['name']}: Net Demand = ₹{net_demand_val}")
                 else:
-                    # Determine class year
-                    class_yr = "2nd Year"
-                    if registration_no and registration_no != 'nan':
-                        if registration_no.startswith('323'):
-                            class_yr = "2nd Year"
-                        elif registration_no.startswith('322'):
-                            class_yr = "3rd Year"
-                    
-                    student = Student.objects.create(
-                        full_name=student_name,
-                        admission_no=admission_no,
-                        reg_no=reg_no,
-                        class_yr=class_yr,
-                        branch="CSE",
-                        mobile="",
-                        email=f"{reg_no}@au.edu.in" if reg_no != 'nan' else f"{admission_no}@au.edu.in",
-                        password=make_password(reg_no if reg_no != 'nan' else admission_no),
-                        amount="13250"
-                    )
-                    students_created += 1
-                    print(f"Created new student: {student_name} ({admission_no})")
-                
-                # Process monthly payments - ALLOW UPDATE
-                for month_info in month_columns:
-                    try:
-                        mess_charge = row.iloc[month_info['mess_col']] if len(row) > month_info['mess_col'] else None
-                        net_demand = row.iloc[month_info['net_demand_col']] if len(row) > month_info['net_demand_col'] else None
-                        days = row.iloc[month_info['days_col']] if len(row) > month_info['days_col'] else None
-                        payment_date = row.iloc[month_info['date_col']] if len(row) > month_info['date_col'] else None
-                        
-                        # Use net_demand as the amount to pay
-                        amount_to_pay = net_demand if net_demand and pd.notna(net_demand) else mess_charge
-                        
-                        if amount_to_pay and pd.notna(amount_to_pay) and isinstance(amount_to_pay, (int, float)) and amount_to_pay > 0:
-                            
-                            payment_date_obj = parse_excel_date(payment_date)
-                            
-                            # Clean month name
-                            month_name = str(month_info['name']).strip()
-                            if len(month_name) > 50:
-                                month_name = month_name[:50]
-                            
-                            # Check if payment already exists
-                            existing_payment = MessPayment.objects.filter(
-                                roll_no=reg_no,
-                                month=month_name
-                            ).first()
-                            
-                            if existing_payment:
-                                # UPDATE existing payment
-                                existing_payment.amount = int(float(amount_to_pay))
-                                existing_payment.days_count = int(days) if days and pd.notna(days) else 0
-                                existing_payment.date = payment_date_obj
-                                existing_payment.status = "Success"
-                                existing_payment.save()
-                                payments_updated += 1
-                                print(f"  ✅ UPDATED payment for {month_name}: ₹{amount_to_pay} ({int(days) if days else 0} days)")
-                            else:
-                                # CREATE new payment
-                                billing_rate, _ = BillingRate.objects.get_or_create(
-                                    month=month_name,
-                                    defaults={
-                                        'days': int(days) if days and pd.notna(days) else 30,
-                                        'electric_charge': 0,
-                                        'mess_charge': float(mess_charge) if mess_charge else 0,
-                                        'service_charge': 0,
-                                        'net_demand': float(amount_to_pay),
-                                        'collection': float(amount_to_pay),
-                                        'date': payment_date_obj
-                                    }
-                                )
-                                
-                                MessPayment.objects.create(
-                                    student_name=student_name,
-                                    roll_no=reg_no,
-                                    room_no=student.room_no or "Not Allotted",
-                                    class_yr=student.class_yr or "2nd Year",
-                                    date=payment_date_obj,
-                                    month=month_name,
-                                    amount=int(float(amount_to_pay)),
-                                    payment_mode="Online",
-                                    purpose="Mess Fee",
-                                    status="Success",
-                                    student=student,
-                                    billing_rate=billing_rate,
-                                    days_count=int(days) if days and pd.notna(days) else 0
-                                )
-                                payments_created += 1
-                                print(f"  ✅ CREATED payment for {month_name}: ₹{amount_to_pay} ({int(days) if days else 0} days)")
-                    
-                    except Exception as e:
-                        errors.append(f"Student {student_name}, Month {month_info['name']}: {str(e)}")
-                        print(f"Error processing month {month_info['name']}: {e}")
+                    billing_rates_updated += 1
+                    print(f"✅ UPDATED billing rate for {month_info['name']}: Net Demand = ₹{net_demand_val}")
                 
             except Exception as e:
-                errors.append(f"Row {idx + header_row + 2}: {str(e)}")
-                print(f"Error processing row {idx}: {e}")
+                errors.append(f"Month {month_info['name']}: {str(e)}")
+                print(f"Error processing month {month_info['name']}: {e}")
         
         return JsonResponse({
             'success': True,
-            'message': f'Students: {students_created} created, {students_updated} updated | Payments: {payments_created} created, {payments_updated} updated',
-            'students_created': students_created,
-            'students_updated': students_updated,
-            'payments_created': payments_created,
-            'payments_updated': payments_updated,
+            'message': f'Billing Rates: {billing_rates_created} created, {billing_rates_updated} updated',
+            'billing_rates_created': billing_rates_created,
+            'billing_rates_updated': billing_rates_updated,
             'errors': errors[:20]
         }, status=200)
         
     except Exception as e:
         print(f"Error: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return JsonResponse({'error': f'Server error: {str(e)}'}, status=500)
 
 
@@ -2726,42 +2923,6 @@ def check_month_paid(request):
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
-def check_month_paid(request):
-    """Check if a student has already paid for a specific month"""
-    try:
-        roll_no = request.GET.get('roll_no')
-        month = request.GET.get('month')
-        
-        if not roll_no or not month:
-            return Response({
-                'paid': False,
-                'error': 'Missing roll_no or month parameter'
-            }, status=400)
-        
-        payment_exists = MessPayment.objects.filter(
-            roll_no=roll_no,
-            month=month,
-            status='Success'
-        ).exists()
-        
-        return Response({
-            'paid': payment_exists,
-            'roll_no': roll_no,
-            'month': month
-        })
-        
-    except Exception as e:
-        print(f"Error checking month paid: {str(e)}")
-        return Response({
-            'paid': False,
-            'error': str(e)
-        }, status=500)
-
-
-# ✅ ADD THE NEW FUNCTION HERE ↓↓↓
-
-@api_view(['GET'])
-@permission_classes([AllowAny])
 def get_student_payment_details(request, admission_no):
     """Get detailed payment information for a student"""
     try:
@@ -2802,8 +2963,6 @@ def get_student_payment_details(request, admission_no):
     except Exception as e:
         return Response({'error': str(e)}, status=500)
 
-
-# ✅ Then the get_all_billing_rates function continues here ↓↓↓
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
@@ -2889,80 +3048,3 @@ def update_mess_payment(request, payment_id):
         return Response({'error': 'Payment not found'}, status=404)
     except Exception as e:
         return Response({'error': str(e)}, status=500)
-
-
-@api_view(['GET'])
-@permission_classes([AllowAny])
-def get_student_payment_details(request, admission_no):
-    """Get detailed payment information for a student"""
-    try:
-        student = Student.objects.filter(admission_no=admission_no).first()
-        if not student:
-            return Response({'error': 'Student not found'}, status=404)
-        
-        payments = MessPayment.objects.filter(roll_no=student.reg_no).order_by('-date')
-        
-        payment_details = []
-        for payment in payments:
-            payment_details.append({
-                'receipt_no': payment.receipt_no,
-                'month': payment.month,
-                'days': payment.days_count,
-                'amount': payment.amount,
-                'payment_date': payment.date.strftime('%Y-%m-%d') if payment.date else None,
-                'status': payment.status,
-                'payment_mode': payment.payment_mode
-            })
-        
-        return Response({
-            'success': True,
-            'student': {
-                'name': student.full_name,
-                'admission_no': student.admission_no,
-                'reg_no': student.reg_no,
-                'room_no': student.room_no or "Not Allotted"
-            },
-            'payments': payment_details,
-            'summary': {
-                'total_paid': sum(p.amount for p in payments),
-                'total_months': len(payments),
-                'total_days': sum(p.days_count for p in payments)
-            }
-        })
-        
-    except Exception as e:
-        return Response({'error': str(e)}, status=500)
-
-
-
-@api_view(['GET'])
-@permission_classes([AllowAny])
-def get_all_billing_rates(request):
-    """Get all billing rates for dropdown in mess payment"""
-    try:
-        billing_rates = BillingRate.objects.all().order_by('-date')
-        data = []
-        for rate in billing_rates:
-            data.append({
-                'month': rate.month,
-                'days': rate.days,
-                'mess_charge': float(rate.mess_charge),
-                'electric_charge': float(rate.electric_charge),
-                'service_charge': float(rate.service_charge),
-                'net_demand': float(rate.net_demand),
-                'collection': float(rate.collection),
-                'date': rate.date.strftime('%Y-%m-%d') if rate.date else None
-            })
-        return Response({
-            'success': True,
-            'data': data
-        })
-    except Exception as e:
-        print(f"Error in get_all_billing_rates: {str(e)}")
-        return Response({
-            'success': False,
-            'error': str(e)
-        }, status=500)
-    
-
-
