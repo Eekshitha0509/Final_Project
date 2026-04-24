@@ -48,18 +48,13 @@ function Register() {
 
     // Prepare data for backend - MATCHING YOUR SERIALIZER
     const submitData = {
-      username: formData.username,
-      email: formData.email,
-      password: formData.password,
-      password2: formData.password2,
-      first_name: formData.first_name,
-      last_name: formData.last_name,
-      admission: formData.admission,  // ✅ Changed from admission_no to admission
-      phone: formData.phone,
-      year: parseInt(formData.year) || 1,  // Convert to integer
-      branch: formData.branch
-    };
-
+        admission_no: formData.admission,   // ✅ FIXED
+        reg_no: formData.admission,         // optional but safe
+        full_name: formData.first_name + " " + formData.last_name,  // ✅ FIXED
+        phone: formData.phone,
+        email: formData.email,
+        password: formData.password
+      };
     console.log("Sending registration data:", submitData);
 
     try {

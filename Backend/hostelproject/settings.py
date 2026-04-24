@@ -115,9 +115,9 @@ WSGI_APPLICATION = 'hostelproject.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'hostel_db',
+        'NAME': 'AU_HOSTELS',
         'USER': 'postgres',
-        'PASSWORD': 'postgres',
+        'PASSWORD': 'root123',
         'HOST': 'localhost',
         'PORT': '5432',
     }
@@ -245,6 +245,8 @@ CSRF_TRUSTED_ORIGINS = [
 # Disable CSRF for API endpoints in development
 CSRF_COOKIE_SECURE = False
 SESSION_COOKIE_SECURE = False
+SESSION_COOKIE_SAMESITE = 'Lax'
+SESSION_COOKIE_HTTPONLY = False
 
 # ========================
 # Logging Configuration (for debugging)

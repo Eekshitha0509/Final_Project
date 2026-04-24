@@ -9,70 +9,6 @@ from django.utils import timezone
 from datetime import timedelta
 from django.contrib.auth import get_user_model
 
-# ========================
-# HOSTEL APPLICATION MODEL (from first config)
-# ========================
-
-class HostelApplication(models.Model):
-    full_name = models.CharField(max_length=255)
-    aadhar = models.CharField(max_length=20)
-    class_yr = models.CharField(max_length=10, blank=True)
-    branch = models.CharField(max_length=50, blank=True)
-    roll_no = models.CharField(max_length=20, blank=True)
-    dob = models.DateField(blank=True, null=True)
-    mobile = models.CharField(max_length=15, blank=True)
-    email = models.EmailField(blank=True)
-    address = models.TextField(blank=True)
-    caste = models.CharField(max_length=50, blank=True)
-    catering = models.CharField(max_length=50, blank=True)
-    amount = models.CharField(max_length=20, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    def __str__(self):
-        return f"{self.full_name} - {self.roll_no}"
-
-
-# ========================
-# STUDENT PROFILE MODEL (from first config)
-# ========================
-
-class StudentProfile(models.Model):
-    YEAR_CHOICES = (
-        (1, '1st Year'),
-        (2, '2nd Year'),
-        (3, '3rd Year'),
-        (4, '4th Year'),
-    )
-    
-    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='student_profile')
-    admission = models.CharField(max_length=50, unique=True, null=True, blank=True)
-    year = models.IntegerField(choices=YEAR_CHOICES, null=True, blank=True)
-    branch = models.CharField(max_length=100, null=True, blank=True)
-    phone_number = models.CharField(max_length=15, blank=True, null=True)
-    address = models.TextField(blank=True, null=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    
-    def __str__(self):
-        return f"{self.user.get_full_name()} - {self.admission if self.admission else 'No Admission'}"
-
-
-# Auto-create profile when user is created
-@receiver(post_save, sender=User)
-def create_student_profile(sender, instance, created, **kwargs):
-    if created:
-        StudentProfile.objects.create(user=instance)
-
-
-# Auto-save profile when user is saved
-@receiver(post_save, sender=User)
-def save_student_profile(sender, instance, **kwargs):
-    if hasattr(instance, 'student_profile'):
-        instance.student_profile.save()
-
-
-# ========================
-# BLOCK MODEL (from first config)
-# ========================
 
 class Block(models.Model):
     BLOCK_CHOICES = (
@@ -81,25 +17,23 @@ class Block(models.Model):
         ('alumini', 'Alumini Hostel'),
     )
     
-    YEAR_MAPPING = {
-        1: 'orange',
-        2: 'meta',
-        3: 'alumini',
-        4: 'orange',
+    YEAR_FLOOR_MAPPING = {
+        # Year: (block_name, floors)
+        1: ('orange', [1, 2, 3]),      # 1st Year - Orange (1st, 2nd, 3rd floor)
+        2: ('meta', [0, 1, 2]),          # 2nd Year - Meta (Ground, 1st, 2nd floor)
+        3: ('orange', [1, 2, 3]),        # 3rd Year - Orange (1st, 2nd, 3rd floor)
+        4: ('orange', [4, 5]),           # 4th Year - Orange (4th, 5th floor)
     }
     
     name = models.CharField(max_length=50, choices=BLOCK_CHOICES, unique=True)
     display_name = models.CharField(max_length=100)
-    total_floors = models.IntegerField(default=3)
+    total_floors = models.IntegerField(default=5)
     description = models.TextField(blank=True)
 
     def __str__(self):
         return self.display_name
 
 
-# ========================
-# FLOOR MODEL (from first config)
-# ========================
 
 class Floor(models.Model):
     block = models.ForeignKey(Block, on_delete=models.CASCADE, related_name='floors')
@@ -113,9 +47,6 @@ class Floor(models.Model):
         return f"{self.block.display_name} - Floor {self.floor_number}"
 
 
-# ========================
-# ROOM MODEL (from first config)
-# ========================
 
 class Room(models.Model):
     ROOM_TYPES = (
@@ -153,9 +84,6 @@ class Room(models.Model):
         return self.current_occupancy < self.capacity
 
 
-# ========================
-# BOOKING MODEL (FIXED - with proper occupancy management)
-# ========================
 
 class Booking(models.Model):
     STATUS_CHOICES = (
@@ -197,30 +125,6 @@ class Booking(models.Model):
     def __str__(self):
         return f"{self.student.username} - {self.room.room_number}"
 
-# ========================
-# PROFILE MODEL (from first config - for backward compatibility)
-# ========================
-
-class Profile(models.Model):
-    student = models.OneToOneField(StudentProfile, on_delete=models.CASCADE, related_name='old_profile', null=True, blank=True)
-    phone_number = models.CharField(max_length=15, blank=True)
-    address = models.TextField(blank=True)
-    emergency_contact = models.CharField(max_length=15, blank=True)
-    emergency_name = models.CharField(max_length=100, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-    
-    def __str__(self):
-        return f"Profile for {self.student if self.student else 'Unknown'}"
-    
-    class Meta:
-        verbose_name = "Profile"
-        verbose_name_plural = "Profiles"
-
-
-# ========================
-# PAYMENT MODEL (from first config)
-# ========================
 
 class Payment(models.Model):
     PAYMENT_STATUS = (
@@ -251,10 +155,6 @@ class Payment(models.Model):
         return f"Payment {self.id} - {self.booking.student.username} - ₹{self.amount}"
 
 
-# ========================
-# STUDENT MODEL (from second config)
-# ========================
-
 class Student(models.Model):
     DEGREE_CHOICES = [
         ('B.Tech', 'B.Tech'),
@@ -278,12 +178,10 @@ class Student(models.Model):
     amount = models.CharField(max_length=10, default="13000")
     student_photo = models.ImageField(upload_to="students/photos/", null=True, blank=True)
     
-    # Hostel related fields (from first model)
     months_stayed = models.IntegerField(default=0)
     is_leaving = models.BooleanField(default=False)
     room = models.CharField(max_length=20, null=True, blank=True)
     
-    # Parents & Guardian
     father_name = models.CharField(max_length=100, blank=True, null=True)
     father_phone = models.CharField(max_length=15, blank=True, null=True)
     father_aadhar = models.FileField(upload_to="parents/father/aadhar/", null=True, blank=True)
@@ -305,10 +203,6 @@ class Student(models.Model):
     def __str__(self):
         return f"{self.full_name} ({self.admission_no})"
     
-    
-# ========================
-# STUDENT REGISTRATION MODEL (from second config)
-# ========================
 
 class StudentRegistration(models.Model):
     admission_no = models.CharField(max_length=20, unique=True)
@@ -316,16 +210,12 @@ class StudentRegistration(models.Model):
     full_name = models.CharField(max_length=100)
     phone = models.CharField(max_length=15, unique=True)
     email = models.EmailField(unique=True)
-    password = models.CharField(max_length=255) 
+    password = models.CharField(max_length=255) # Password stays here
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
         return f"{self.full_name} ({self.admission_no})"
 
-
-# ========================
-# CERTIFICATE MODEL (from second config)
-# ========================
 
 class Certificate(models.Model):
     CERTIFICATE_TYPES = [
@@ -406,27 +296,49 @@ class MessPayment(models.Model):
     def __str__(self):
         return f"{self.student_name} - {self.month} - {self.status}"
 
-# ========================
-# PASSWORD RESET OTP MODEL (from second config)
-# ========================
-
 UserModel = get_user_model()
 
 class PasswordResetOTP(models.Model):
-    user = models.ForeignKey('StudentRegistration', on_delete=models.CASCADE, related_name='password_reset_otps')
+    user = models.ForeignKey('StudentRegistration', on_delete=models.CASCADE, related_name='password_reset_otps', null=True, blank=True)
     otp = models.CharField(max_length=6)
     reset_token = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    
+    email = models.CharField(max_length=255, null=True, blank=True)
     
     class Meta:
         ordering = ['-created_at']
     
     def is_valid(self):
-        # OTP is valid for 10 minutes (600 seconds)
+        from django.utils.dateparse import parse_datetime
         now = timezone.now()
-        return (now - self.created_at).total_seconds() < 600
+        
+        if self.created_at is None:
+            return False
+            
+        created = self.created_at
+        
+        if timezone.is_naive(created):
+            created = timezone.make_aware(created)
+        
+        return (now - created).total_seconds() < 600
     
     def __str__(self):
-        return f"OTP for {self.user.email} - {self.otp} - Valid: {self.is_valid()}"
+        user_email = self.user.email if self.user else self.email
+        return f"OTP for {user_email} - {self.otp} - Valid: {self.is_valid()}"
+
+class AdminWardenUser(models.Model):
+    ROLE_CHOICES = [
+        ('admin', 'Admin'),
+        ('warden', 'Warden'),
+    ]
+    
+    username = models.CharField(max_length=50, unique=True)
+    email = models.EmailField(unique=True)
+    password = models.CharField(max_length=255)  # Will store hashed passwords
+    role = models.CharField(max_length=10, choices=ROLE_CHOICES)
+
+    def __str__(self):
+        return f"{self.username} ({self.role})"
 
 

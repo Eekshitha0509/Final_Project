@@ -6,14 +6,13 @@ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('hostel/', include('applications.urls')),
-    
-    # JWT Token endpoints
-    path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
-    path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
-    
-    # Include all application URLs
+
+    # ONLY THIS
     path('api/', include('applications.urls')),
+
+    # JWT
+    path('api/token/', TokenObtainPairView.as_view()),
+    path('api/token/refresh/', TokenRefreshView.as_view()),
 ]
 
 if settings.DEBUG:

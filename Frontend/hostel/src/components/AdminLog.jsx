@@ -5,7 +5,7 @@ function AdminLog() {
   const navigate = useNavigate();
 
   const [formData, setFormData] = useState({
-    admin_id: "",
+    username: "",
     password: ""
   });
 
@@ -26,13 +26,13 @@ function AdminLog() {
 
     try {
       const loginData = {
-        admin_id: formData.admin_id.trim(),
+        username: formData.username.trim(),
         password: formData.password
       };
       
       console.log("Sending login data:", loginData);
       
-      const response = await fetch("http://127.0.0.1:8000/hostel/admin-login/", {
+      const response = await fetch("http://127.0.0.1:8000/api/admin-login/", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -47,8 +47,9 @@ function AdminLog() {
         localStorage.setItem(
           "admin",
           JSON.stringify({
-            username: data.admin,
-            admin_id: formData.admin_id
+            username: data.admin.username,
+            email: data.admin.email,
+            role: data.admin.role
           })
         );
         
@@ -89,12 +90,12 @@ function AdminLog() {
 
         <div className="flex flex-col gap-2">
           <label className="text-xs font-bold text-slate-500 uppercase tracking-wider ml-1">
-            Admin ID
+            Username
           </label>
           <input 
             type="text"
-            name="admin_id"
-            value={formData.admin_id}
+            name="username"
+            value={formData.username}
             placeholder="Enter admin username"
             onChange={handleChange}
             required
@@ -141,6 +142,15 @@ function AdminLog() {
             "Login to Portal"
           )}
         </button>
+        <div className="text-right">
+        <button
+          type="button"
+          onClick={() => navigate("/forgot-password")}
+          className="text-sm text-blue-600 hover:underline"
+        >
+          Forgot Password?
+        </button>
+      </div>
 
         <div className="border-t border-slate-100 pt-4 mt-2">
           <p className="text-center text-[10px] text-slate-400">

@@ -27,27 +27,16 @@ const ResidenceCertificate = () => {
     setLoading(true);
     try {
       // First fetch student profile
-      const response = await fetch(`http://127.0.0.1:8000/hostel/get-student-profile/?${searchType}=${studentId}`);
+      const searchParam = searchType === "admission_no" ? "admission_no" : "reg_no";
+      const response = await fetch(`http://127.0.0.1:8000/api/get-student-profile/?${searchParam}=${encodeURIComponent(studentId)}`);
       if (!response.ok) throw new Error("Student not found");
       
       const data = await response.json();
       console.log("Full API Response:", data);
       
       // Then fetch hostel allocation details
-      let hostelBlock = "Not Assigned";
-      let hostelRoom = "Not Assigned";
-      
-      try {
-        const hostelResponse = await fetch(`http://127.0.0.1:8000/hostel/get-student-hostel/?reg_no=${data.reg_no || studentId}`);
-        if (hostelResponse.ok) {
-          const hostelData = await hostelResponse.json();
-          console.log("Hostel data:", hostelData);
-          hostelBlock = hostelData.block_name || hostelData.block || "Not Assigned";
-          hostelRoom = hostelData.room_number || hostelData.room_no || "Not Assigned";
-        }
-      } catch (hostelError) {
-        console.log("No hostel allocation found:", hostelError);
-      }
+      let hostelBlock = data.block || "Not Assigned";
+      let hostelRoom = data.room_no || "Not Assigned";
       
       setStudent({
         full_name: data.full_name || "",
@@ -83,7 +72,7 @@ const ResidenceCertificate = () => {
     window.open(blobURL, "_blank");
 
     try {
-      await fetch("http://127.0.0.1:8000/hostel/save-certificate-record/", {
+      await fetch("http://127.0.0.1:8000/api/save-certificate/", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

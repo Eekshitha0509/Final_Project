@@ -9,7 +9,6 @@ const EstimationSlip = () => {
   const [studentId, setStudentId] = useState("");
   const [searchType, setSearchType] = useState("admission_no");
   const [loading, setLoading] = useState(false);
-  const [loaded, setLoaded] = useState(false);
 
   // Admin inputs for the fee amounts
   const [admissionFee, setAdmissionFee] = useState(0);
@@ -30,27 +29,16 @@ const EstimationSlip = () => {
     setLoading(true);
     try {
       // First fetch student profile
-      const response = await fetch(`http://127.0.0.1:8000/hostel/get-student-profile/?${searchType}=${studentId}`);
+      const searchParam = searchType === "admission_no" ? "admission_no" : "reg_no";
+      const response = await fetch(`http://127.0.0.1:8000/api/get-student-profile/?${searchParam}=${encodeURIComponent(studentId)}`);
       if (!response.ok) throw new Error("Student not found");
       
       const data = await response.json();
       console.log("Student data:", data);
       
-      // Then fetch hostel allocation details
-      let hostelBlock = "Not Assigned";
-      let hostelRoom = "Not Assigned";
-      
-      try {
-        const hostelResponse = await fetch(`http://127.0.0.1:8000/hostel/get-student-hostel/?reg_no=${data.reg_no || studentId}`);
-        if (hostelResponse.ok) {
-          const hostelData = await hostelResponse.json();
-          console.log("Hostel data:", hostelData);
-          hostelBlock = hostelData.block_name || hostelData.block || "Not Assigned";
-          hostelRoom = hostelData.room_number || hostelData.room_no || "Not Assigned";
-        }
-      } catch (hostelError) {
-        console.log("No hostel allocation found:", hostelError);
-      }
+      // Get hostel details from the response itself
+      const hostelBlock = data.block || "Not Assigned";
+      const hostelRoom = data.room_no || "Not Assigned";
       
       setStudent({
         full_name: data.full_name || "",
@@ -61,7 +49,6 @@ const EstimationSlip = () => {
         room_no: hostelRoom,
         admission_no: data.admission_no || ""
       });
-      setLoaded(true);
     } catch (error) {
       console.error("Error:", error);
       alert("Student record not found in database.");
@@ -90,7 +77,7 @@ const EstimationSlip = () => {
       const blobURL = pdf.output("bloburl");
       printWindow.location.href = blobURL;
 
-      await fetch("http://127.0.0.1:8000/hostel/save-certificate-record/", {
+      await fetch("http://127.0.0.1:8000/api/save-certificate/", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -112,7 +99,7 @@ const EstimationSlip = () => {
       <h2 className="text-3xl font-bold mb-6 text-slate-800">Hostel Fee Estimation Certificate</h2>
 
       {/* Control Panel */}
-      <div className="bg-white shadow-xl rounded-2xl p-8 mb-10 w-[600px] border border-slate-100">
+      <div className="bg-white shadow-xl rounded-2xl p-8 mb-10 w-150 border border-slate-100">
         <div className="flex gap-4 mb-6">
           <button
             onClick={() => setSearchType("admission_no")}
@@ -160,16 +147,17 @@ const EstimationSlip = () => {
               ✅ Loaded: {student.full_name} (Reg No: {student.reg_no})
             </p>
             <p className="text-sm text-green-700 mt-1">
-              🏠 Hostel: {student.block !== "Not Assigned" ? student.block : "Not Allocated"} | 
-              Room: {student.room_no !== "Not Assigned" ? student.room_no : "Not Allocated"}
+              🏠 Hostel: {student.block === "Not Assigned" ? "Not Allocated" : student.block} | 
+              Room: {student.room_no === "Not Assigned" ? "Not Allocated" : student.room_no}
             </p>
           </div>
         )}
 
         <div className="grid grid-cols-2 gap-6 pt-4 border-t border-slate-100">
           <div>
-            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Admission Fee (₹)</label>
+            <label htmlFor="admissionFee" className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Admission Fee (₹)</label>
             <input
+              id="admissionFee"
               type="number"
               value={admissionFee}
               onChange={(e) => setAdmissionFee(e.target.value)}
@@ -177,8 +165,9 @@ const EstimationSlip = () => {
             />
           </div>
           <div>
-            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Monthly Mess Fee (₹)</label>
+            <label htmlFor="messFee" className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Monthly Mess Fee (₹)</label>
             <input
+              id="messFee"
               type="number"
               value={messFee}
               onChange={(e) => setMessFee(e.target.value)}
@@ -191,10 +180,10 @@ const EstimationSlip = () => {
       {/* CERTIFICATE PREVIEW AREA */}
       <div
         ref={certificateRef}
-        className="relative w-[800px] bg-white border border-black p-16 text-black leading-[3.5rem] overflow-hidden"
+        className="relative w-200 bg-white border border-black p-16 text-black leading-14 overflow-hidden"
       >
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          <img src={watermark} alt="Watermark" className="w-[350px] opacity-10" />
+          <img src={watermark} alt="Watermark" className="w-87.5 opacity-10" />
         </div>
 
         <div className="text-center mb-10">
@@ -213,33 +202,33 @@ const EstimationSlip = () => {
         <div className="text-lg">
           <p>
             Name:{" "}
-            <span className="font-bold border-b border-dotted inline-block px-4 min-w-[300px] text-center">
+            <span className="font-bold border-b border-dotted inline-block px-4 min-w-75 text-center">
               {student.full_name || "____________________"}
             </span>
           </p>
           <p>
             Reg. No{" "}
-            <span className="font-bold border-b border-dotted inline-block px-4 min-w-[150px] text-center">
+            <span className="font-bold border-b border-dotted inline-block px-4 min-w-37.5 text-center">
               {student.reg_no || "__________"}
             </span>
           </p>
           <p>
             Class{" "}
-            <span className="font-bold border-b border-dotted inline-block px-4 min-w-[120px] text-center">
+            <span className="font-bold border-b border-dotted inline-block px-4 min-w-30 text-center">
               {student.class_yr || "__________"}
             </span> 
             Branch{" "}
-            <span className="font-bold border-b border-dotted inline-block px-4 min-w-[150px] text-center">
+            <span className="font-bold border-b border-dotted inline-block px-4 min-w-37.5 text-center">
               {student.branch || "__________"}
             </span>
           </p>
           <p>
             Hostel Block{" "}
-            <span className="font-bold border-b border-dotted inline-block px-4 min-w-[100px] text-center">
+            <span className="font-bold border-b border-dotted inline-block px-4 min-w-25 text-center">
               {student.block && student.block !== "Not Assigned" ? student.block : "_____"}
             </span> 
             Room No{" "}
-            <span className="font-bold border-b border-dotted inline-block px-4 min-w-[100px] text-center">
+            <span className="font-bold border-b border-dotted inline-block px-4 min-w-25 text-center">
               {student.room_no && student.room_no !== "Not Assigned" ? student.room_no : "_____"}
             </span>
           </p>

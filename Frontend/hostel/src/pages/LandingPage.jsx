@@ -7,7 +7,7 @@ function LandingPage() {
     // Start with 'null' so no form is visible initially
     const [view, setView] = useState(null);
 
-    const btnStyle = "w-48 bg-black hover:bg-blue-700 text-white font-bold py-4 px-6 rounded-xl border-b-4 border-yellow-500 active:border-b-0 transition-all uppercase tracking-widest shadow-lg";
+    const btnStyle = "w-48 bg-slate-800 hover:bg-blue-700 text-white font-bold py-4 px-6 rounded-xl border-b-4 border-yellow-500 active:border-b-0 transition-all uppercase tracking-widest shadow-lg";
 
     return (
         <div className='flex flex-col items-center justify-center min-h-[60vh] p-10'>

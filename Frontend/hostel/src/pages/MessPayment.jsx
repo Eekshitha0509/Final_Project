@@ -36,7 +36,7 @@ function MessFeePayment() {
 
   const fetchAllBillingRates = async () => {
     try {
-      const response = await axios.get('http://127.0.0.1:8000/hostel/get-all-billing-rates/');
+      const response = await axios.get('http://127.0.0.1:8000/api/get-all-billing-rates/');
       if (response.data.success) {
         const rates = {};
         const months = [];
@@ -65,7 +65,7 @@ function MessFeePayment() {
     
     try {
       const response = await axios.get(
-        `http://127.0.0.1:8000/hostel/check-month-paid/?roll_no=${roll_no}&month=${month}`
+        `http://127.0.0.1:8000/api/check-month-paid/?roll_no=${roll_no}&month=${month}`
       );
       return response.data.paid === true;
     } catch (error) {
@@ -84,7 +84,7 @@ function MessFeePayment() {
     setLoading(true);
     try {
       const response = await axios.get(
-        `http://127.0.0.1:8000/hostel/get-student-profile/?${searchType}=${searchId}`
+        `http://127.0.0.1:8000/api/get-student-profile/?${searchType}=${searchId}`
       );
       
       const studentData = response.data;
@@ -200,7 +200,7 @@ function MessFeePayment() {
   // Verify payment
   const verifyPayment = async (paymentResponse, studentData) => {
     try {
-      const res = await axios.post("http://127.0.0.1:8000/hostel/verify-payment/", {
+      const res = await axios.post("http://127.0.0.1:8000/api/verify-payment/", {
         razorpay_order_id: paymentResponse.razorpay_order_id,
         razorpay_payment_id: paymentResponse.razorpay_payment_id,
         razorpay_signature: paymentResponse.razorpay_signature,
@@ -209,12 +209,15 @@ function MessFeePayment() {
         room_no: studentData.room_no,
         class_yr: studentData.class_yr,
         month: studentData.month,
-        amount: studentData.amount,
+        amount: parseInt(studentData.amount),
         days: studentData.days
       });
 
       if (res.data.status === "success") {
-        alert("✅ Payment Verified Successfully!");
+        const paymentTime = res.data.payment_time || 'Just now';
+        const daysPaid = res.data.days || studentData.days;
+        
+        alert(`✅ Payment Verified Successfully!\n\nReceipt No: ${res.data.receipt_id}\nPayment Time: ${paymentTime}\nDays: ${daysPaid}`);
         
         if (res.data.receipt_id) {
           await handleDownloadPDF(res.data.receipt_id);
@@ -240,7 +243,7 @@ function MessFeePayment() {
         setSearchId("");
         
         setTimeout(() => {
-          navigate("/dashboard");
+          navigate("/homepage");
         }, 2000);
       }
     } catch (err) {
@@ -252,7 +255,7 @@ function MessFeePayment() {
   // Download PDF receipt
   const handleDownloadPDF = async (receiptId) => {
     try {
-      const response = await axios.get(`http://127.0.0.1:8000/hostel/receipt/${receiptId}/`, {
+      const response = await axios.get(`http://127.0.0.1:8000/api/receipt/${receiptId}/`, {
         responseType: 'blob',
       });
 
@@ -305,7 +308,7 @@ function MessFeePayment() {
       // Save payment details to backend
       console.log("📝 Saving payment details...");
       const saveResponse = await axios.post(
-        "http://127.0.0.1:8000/hostel/mess-payment/",
+        "http://127.0.0.1:8000/api/mess-payment/",
         {
           student_name: formData.student_name,
           roll_no: formData.roll_no,
@@ -324,7 +327,7 @@ function MessFeePayment() {
 
       // Create Razorpay order
       console.log("💰 Creating Razorpay order...");
-      const orderRes = await axios.post("http://127.0.0.1:8000/hostel/create-order/", { 
+      const orderRes = await axios.post("http://127.0.0.1:8000/api/create-order/", { 
         amount: parseInt(formData.amount),
         roll_no: formData.roll_no
       });
@@ -356,7 +359,10 @@ function MessFeePayment() {
         },
         handler: async function (paymentResponse) {
           console.log("💳 Payment received:", paymentResponse);
-          await verifyPayment(paymentResponse, formData);
+          await verifyPayment(paymentResponse, {
+            ...formData,
+            amount: formData.amount
+          });
           setLoading(false);
         },
         modal: {
@@ -397,7 +403,7 @@ function MessFeePayment() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-100 to-slate-200 py-10 px-4">
-      <div className="max-w-4xl mx-auto bg-white rounded-2xl shadow-xl border overflow-hidden">
+      <div className="max-w-5xl mx-auto bg-white shadow-2xl rounded-lg border-t-8 border-[#002147] relative px-6">
         {/* University Header */}
         <div className="bg-gradient-to-r from-[#002147] to-[#003366] p-6 text-center text-white">
           <h1 className="text-lg font-bold text-yellow-400 uppercase tracking-widest">Andhra University</h1>

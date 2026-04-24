@@ -1,4 +1,4 @@
-// App.jsx - Fixed Version
+// App.jsx - Cleaned & Updated Version
 import React from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 
@@ -10,51 +10,36 @@ import StudentLog from "./components/StudentLog";
 import AdminLog from "./components/AdminLog";
 import WardenLog from "./components/WardenLog";
 import Register from "./components/Register";
+import ForgotPassword from './components/ForgotPassword';
 
 // Certificate Components
 import NoDuesCertificate from "./components/NoDuesCertificate";
 import ResidenceCertificate from "./components/ResidenceCertificate";
 import EstimationCertificate from "./components/EstimationCertificate";
-import ForgotPassword from './components/ForgotPassword';
 
 // Page Components
 import Homepage from "./pages/Homepage";
 import LandingPage from "./pages/LandingPage";
 import Profile from "./pages/Profile";
-import RoomAllocation from "./pages/RoomAllocation";
+import RoomBooking from "./pages/RoomBooking"; // ✅ Added this import
 import AdminHomepage from "./pages/Adminhomepage";
 import MessPayment from "./pages/MessPayment";
-import RoomBooking from "./pages/RoomBooking";
 import Payment from './pages/Payment';
 
-// Protected Route Component
-const ProtectedRoute = ({ children }) => {
-  const token = localStorage.getItem('access');
-  const studentToken = localStorage.getItem('student');
-  const adminToken = localStorage.getItem('admin');
-  const wardenToken = localStorage.getItem('warden');
-  
-  const isAuthenticated = token || studentToken || adminToken || wardenToken;
-  
-  if (!isAuthenticated) {
-    return <Navigate to="/" replace />;
-  }
-  return children;
-};
-
-// Role-specific Protected Routes
+// Role-specific Protected Routes based on new LocalStorage setup
 const StudentRoute = ({ children }) => {
-  const studentToken = localStorage.getItem('student');
+  // Check for the JWT access token we established during our login cleanup
   const token = localStorage.getItem('access');
   
-  if (!studentToken && !token) {
+  if (!token) {
     return <Navigate to="/" replace />;
   }
   return children;
 };
 
 const AdminRoute = ({ children }) => {
-  const adminToken = localStorage.getItem('admin');
+  // Admins might have a different token structure depending on your AdminLog.jsx
+  const adminToken = localStorage.getItem('admin') || localStorage.getItem('access');
   
   if (!adminToken) {
     return <Navigate to="/" replace />;
@@ -77,8 +62,14 @@ function App() {
         <Route path="/login/admin" element={<AdminLog />} />
         <Route path="/login/warden" element={<WardenLog />} />
         <Route path="/register" element={<Register />} />
-        <Route path="/payment/:bookingId" element={<Payment />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
+        
+        {/* Payment Route (Protected by StudentRoute) */}
+        <Route path="/payment/:bookingId" element={
+          <StudentRoute>
+            <Payment />
+          </StudentRoute>
+        } />
         
         {/* Certificate Routes - Student Access */}
         <Route path="/nodues" element={
@@ -112,12 +103,7 @@ function App() {
           </StudentRoute>
         } />
         
-        <Route path="/homepage" element={
-          <StudentRoute>
-            <Homepage />
-          </StudentRoute>
-        } />
-        
+        {/* ✅ Room Booking Route */}
         <Route path="/room-booking" element={
           <StudentRoute>
             <RoomBooking />
@@ -137,13 +123,7 @@ function App() {
           </AdminRoute>
         } />
         
-        <Route path="/room-allocation" element={
-          <AdminRoute>
-            <RoomAllocation />
-          </AdminRoute>
-        } />
-        
-        {/* Catch all route - 404 */}
+        {/* Catch all route - 404 redirects to Landing Page */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Router>

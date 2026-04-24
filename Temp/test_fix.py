@@ -1,0 +1,1 @@
+search_cols.extend(range(roll_col + 1, min(roll_col + 5, len(row)))

@@ -1,116 +1,98 @@
-# applications/urls.py - COMPLETE WORKING VERSION
+# applications/urls.py - COMPLETE CLEANED VERSION
 
 from django.urls import path
-from django.conf import settings
-from django.conf.urls.static import static
+from django.conf import settings              # <-- ADDED THIS
+from django.conf.urls.static import static    # <-- ADDED THIS
 from . import views
-from .views import (
-    RequestOTP, VerifyOTP, ResetPassword, 
-    get_student_hostel
-)
+from .views import RequestOTP, VerifyOTP, ResetPassword
 
 urlpatterns = [
     # ========================
-    # JWT AUTHENTICATION ENDPOINTS
+    # AUTHENTICATION ENDPOINTS
     # ========================
     path('register/', views.register, name='register'),
     path('login/', views.login, name='login'),
+    path('admin-login/', views.admin_login, name='admin_login'),
     path('token/refresh/', views.refresh_token, name='token_refresh'),
     path('logout/', views.logout, name='logout'),
     
     # ========================
-    # LEGACY AUTHENTICATION ENDPOINTS
-    # ========================
-    path('register-student/', views.register_student, name='register_student'),
-    path('student-login/', views.student_login, name='student_login'),
-    path('admin-login/', views.admin_login, name='admin_login'),
-    
-    # ========================
     # PASSWORD RESET ENDPOINTS
     # ========================
-    path('request-otp/', RequestOTP.as_view(), name='request_otp'),
-    path('verify-otp/', VerifyOTP.as_view(), name='verify_otp'),
-    path('reset-password/', ResetPassword.as_view(), name='reset_password'),
-    
+    path('request-otp/', RequestOTP.as_view()),
+    path('verify-otp/', VerifyOTP.as_view()),
+    path('reset-password/', ResetPassword.as_view()),
     # ========================
     # PROFILE ENDPOINTS
     # ========================
-    path('submit-profile/', views.submit_profile_second, name='submit_profile'),
+    path('submit-profile/', views.submit_profile, name='submit_profile'),
     path('get-student-profile/', views.get_student_profile, name='get_student_profile'),
-    path('profile/', views.get_profile, name='profile'),
-    path('profile/update/', views.submit_profile, name='submit-profile'),
+    path('get-student-hostel/', views.get_student_hostel, name='get_student_hostel'),
     
     # ========================
-    # BLOCKS ENDPOINTS
+    # BLOCK, FLOOR, AND ROOM ENDPOINTS
     # ========================
-    path('blocks/', views.get_all_blocks, name='all-blocks'),
-    path('my-block/', views.get_block_for_year, name='my-block'),
-    path('block/<int:block_id>/floors/', views.get_floors_with_rooms, name='block-floors'),
-    path('block/<str:block_name>/floor/<int:floor_number>/rooms/', 
-         views.get_rooms_for_floor, 
-         name='floor-rooms'),
+    path('blocks/', views.get_all_blocks, name='get_all_blocks'),
+    path('my-block/', views.get_block_for_year, name='get_block_for_year'),
+    path('blocks/<int:block_id>/floors/', views.get_floors_with_rooms, name='get_floors_with_rooms'),
+    path('blocks/<str:block_name>/floors/<int:floor_number>/rooms/', views.get_rooms_for_floor, name='get_rooms_for_floor'),
+    path('room-availability/<int:room_id>/', views.get_room_availability, name='room_availability'),
     
     # ========================
-    # BOOKINGS ENDPOINTS
+    # BOOKING ENDPOINTS
     # ========================
-    path('book-room/', views.book_room, name='book-room'),
-    path('my-booking/', views.get_student_booking, name='my-booking'),
-    path('cancel-booking/<int:booking_id>/', views.cancel_booking, name='cancel-booking'),
+    path('book-room/', views.book_room, name='book_room'),
+    path('my-booking/', views.get_student_booking, name='get_student_booking'),
+    path('cancel-booking/<int:booking_id>/', views.cancel_booking, name='cancel_booking'),
     
     # ========================
-    # ROOM BOOKING PAYMENTS
+    # ROOM PAYMENT ENDPOINTS (RAZORPAY)
     # ========================
-    path('payments/create-order/', views.create_razorpay_order, name='create-razorpay-order'),
-    path('payments/verify/', views.verify_razorpay_payment, name='verify-razorpay-payment'),
-    path('payments/status/<int:booking_id>/', views.get_payment_status, name='payment-status'),
-    path('payments/<int:payment_id>/', views.get_payment_details, name='payment-details'),
-    path('payments/webhook/', views.razorpay_webhook, name='razorpay-webhook'),
+    path('create-razorpay-order/', views.create_razorpay_order, name='create_razorpay_order'),
+    path('verify-razorpay-payment/', views.verify_razorpay_payment, name='verify_razorpay_payment'),
+    path('payment-status/<int:booking_id>/', views.get_payment_status, name='get_payment_status'),
+    path('payment-details/<int:payment_id>/', views.get_payment_details, name='get_payment_details'),
+    path('razorpay-webhook/', views.razorpay_webhook, name='razorpay_webhook'),
     
     # ========================
     # MESS PAYMENT ENDPOINTS
     # ========================
-    path('mess-payment/', views.mess_payment, name='mess_payment'),
     path('create-order/', views.create_order, name='create_order'),
     path('verify-payment/', views.verify_payment, name='verify_payment'),
+    path('mess-payment/', views.mess_payment, name='mess_payment'),
+    path('receipt/<str:receipt_id>/', views.download_mess_receipt, name='download_receipt'),
+    path('get-all-billing-rates/', views.get_all_billing_rates, name='get_all_billing_rates'),
+    path('check-month-paid/', views.check_month_paid, name='check_month_paid'),
+    
+# ========================
+    # CERTIFICATES & DUES ENDPOINTS
+    # ========================
+    path('save-certificate/', views.save_certificate_record, name='save_certificate'),
+    path('update-months/', views.update_months, name='update_months'),
+    path('check-no-dues/', views.check_no_dues, name='check_no_dues'),
     
     # ========================
-    # CERTIFICATE ENDPOINTS
+    # EXCEL UPLOADS - Single Auto-Detect Upload
     # ========================
-    path('save-certificate-record/', views.save_certificate_record, name='save_certificate'),
+    # Auto-detects: Student Details vs Billing Data based on columns
+    path('upload-excel/', views.upload_excel_unified, name='upload_excel'),
     
-    # ========================
-    # STUDENT ENDPOINTS
-    # ========================
-    path('students/', views.get_all_students, name='get_all_students'),
+    # For Backward Compatibility - both point to unified
+    path('upload-meta-hostel-excel/', views.upload_excel_unified, name='upload_meta_hostel_excel'),
 
     # ========================
-    # TEST ENDPOINT
+    # BILLING & PAYMENT APIs  
+    # ========================
+    path('get-student-billing/', views.get_student_billing, name='get_student_billing'),
+    path('get-billing-by-regno/', views.get_dynamic_billing_by_regno, name='get_dynamic_billing_by_regno'),
+    path('get-available-billing-years/', views.get_available_billing_years, name='get_available_billing_years'),
+    path('debug-billing-list/', views.debug_billing_list, name='debug_billing_list'),
+    path('get-all-students-billing-table/', views.get_all_students_billing_table, name='get_all_students_billing_table'),
+    
+    # ========================
+    # UTILITY ENDPOINTS
     # ========================
     path('test/', views.test_endpoint, name='test'),
-    path('room-availability/<int:room_id>/', views.get_room_availability, name='room_availability'),
-    
-    # ========================
-    # HOSTEL INFO ENDPOINT
-    # ========================
-    path('get-student-hostel/', get_student_hostel, name='get_student_hostel'),
-    path('receipt/<str:receipt_id>/', views.download_mess_receipt, name='download_receipt'),
-    path('update-months/', views.update_months, name='update-months'),
-    path('check-no-dues/', views.check_no_dues, name='check_no_dues'),
-    path('upload-excel/', views.upload_excel),
-    
-    # ========================
-    # BILLING ENDPOINTS (ADD THESE)
-    # ========================
-    path('upload-billing-excel/', views.upload_billing_excel, name='upload_billing_excel'),
-    path('get-student-billing/', views.get_student_billing, name='get_student_billing'),
-    path('get-billing-rate-by-month/', views.get_billing_rate_by_month, name='get_billing_rate_by_month'),
-    path('check-month-paid/', views.check_month_paid, name='check_month_paid'),
-    path('get-all-billing-rates/', views.get_all_billing_rates, name='get_all_billing_rates'),  # ✅ This line
-    
-    # ========================
-    # EXCEL UPLOAD ENDPOINT
-    # ========================
-    path('upload-meta-excel/', views.upload_meta_hostel_excel, name='upload_meta_excel'),
 ]
 
 if settings.DEBUG:

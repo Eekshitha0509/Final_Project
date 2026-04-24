@@ -8,7 +8,6 @@ const NoDuesCertificate = () => {
 
   const [studentId, setStudentId] = useState("");
   const [student, setStudent] = useState(null);
-  const [dayScholar, setDayScholar] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
@@ -24,22 +23,19 @@ const NoDuesCertificate = () => {
 
     try {
       const response = await fetch(
-        `http://127.0.0.1:8000/hostel/get-student-profile/?reg_no=${studentId}`
+        `http://127.0.0.1:8000/api/get-student-profile/?reg_no=${encodeURIComponent(studentId)}`
       );
 
       if (!response.ok) {
-        setDayScholar(true);
         setStudent(null);
       } else {
         const data = await response.json();
         setStudent(data);
-        setDayScholar(false);
       }
 
       setLoaded(true);
     } catch (error) {
       console.error("Error:", error);
-      setDayScholar(true);
       setStudent(null);
       setLoaded(true);
     } finally {
@@ -65,7 +61,7 @@ const NoDuesCertificate = () => {
 
       // 🔹 update months
       const updateRes = await fetch(
-        "http://127.0.0.1:8000/hostel/update-months/",
+        "http://127.0.0.1:8000/api/update-months/",
         {
           method: "POST",
           headers: { 
@@ -73,7 +69,7 @@ const NoDuesCertificate = () => {
             "Authorization": `Bearer ${token}`
           },
           body: JSON.stringify({
-            months: Number(months),  // ✅ Changed from months_stayed to months
+            months: Number(months),
           }),
         }
       );
@@ -88,7 +84,7 @@ const NoDuesCertificate = () => {
 
       // 🔹 check dues
       const res = await fetch(
-        `http://127.0.0.1:8000/hostel/check-no-dues/?reg_no=${studentId}`
+        `http://127.0.0.1:8000/api/check-no-dues/?reg_no=${encodeURIComponent(studentId)}`
       );
 
       if (!res.ok) {
@@ -135,7 +131,7 @@ const NoDuesCertificate = () => {
     window.open(blobURL, "_blank");
 
     try {
-      await fetch("http://127.0.0.1:8000/hostel/save-certificate-record/,", {
+      await fetch("http://127.0.0.1:8000/api/save-certificate/", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -157,7 +153,7 @@ const NoDuesCertificate = () => {
       </h2>
 
       {/* Control Panel */}
-      <div className="bg-white shadow-xl rounded-2xl p-8 mb-10 w-[600px] border border-slate-100">
+      <div className="bg-white shadow-xl rounded-2xl p-8 mb-10 w-150 border border-slate-100">
         
         {/* 🔥 ONLY CHANGE HERE */}
         <div className="flex flex-col gap-4">
@@ -196,10 +192,10 @@ const NoDuesCertificate = () => {
         <>
           <div
             ref={certificateRef}
-            className="relative w-[800px] bg-white border border-black p-16 text-black leading-[3.5rem] overflow-hidden shadow-2xl"
+            className="relative w-200 bg-white border border-black p-16 text-black leading-14 overflow-hidden shadow-2xl"
           >
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-              <img src={watermark} alt="Watermark" className="w-[350px] opacity-10" />
+              <img src={watermark} alt="Watermark" className="w-87.5 opacity-10" />
             </div>
 
             <div className="text-center mb-10">
@@ -220,25 +216,25 @@ const NoDuesCertificate = () => {
                 <>
                   <p>
                     This is to certify that Mr.{" "}
-                    <span className="font-bold border-b border-dotted inline-block px-4 min-w-[200px] text-center">
+                    <span className="font-bold border-b border-dotted inline-block px-4 min-w-50 text-center">
                       {student.full_name}
                     </span>{" "}
                     Reg. No{" "}
-                    <span className="font-bold border-b border-dotted inline-block px-4 min-w-[150px] text-center">
+                    <span className="font-bold border-b border-dotted inline-block px-4 min-w-37.5 text-center">
                       {student.reg_no}
                     </span>
                   </p>
                   <p>
                     Class{" "}
-                    <span className="font-bold border-b border-dotted inline-block px-4 min-w-[120px] text-center">
+                    <span className="font-bold border-b border-dotted inline-block px-4 min-w-30 text-center">
                       {student.class_yr}
                     </span>
                     degree{" "}
-                    <span className="font-bold border-b border-dotted inline-block px-4 min-w-[120px] text-center">
+                    <span className="font-bold border-b border-dotted inline-block px-4 min-w-30 text-center">
                       {getDegreeLabel(student.degree)}
                     </span>
                     Branch{" "}
-                    <span className="font-bold border-b border-dotted inline-block px-4 min-w-[150px] text-center">
+                    <span className="font-bold border-b border-dotted inline-block px-4 min-w-37.5 text-center">
                       {student.branch}
                     </span>
                   </p>
@@ -250,7 +246,7 @@ const NoDuesCertificate = () => {
                 <>
                   <p>
                     This is to certify that the student bearing Registration Number{" "}
-                    <span className="font-bold border-b border-dotted inline-block px-4 min-w-[200px] text-center">
+                    <span className="font-bold border-b border-dotted inline-block px-4 min-w-50 text-center">
                       {studentId}
                     </span>
                   </p>

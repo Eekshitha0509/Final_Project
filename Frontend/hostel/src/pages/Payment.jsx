@@ -36,7 +36,7 @@ const Payment = () => {
       } else {
         console.log("8. No active booking message:", response.data.message);
         alert('No active booking found. Please book a room first.');
-        navigate('/room-allocation');
+        navigate('/homepage');
       }
     } catch (error) {
       console.error('9. Error fetching booking:', error);
@@ -77,7 +77,7 @@ const Payment = () => {
       
       // Step 1: Create Razorpay order on backend
       const orderResponse = await axios.post(
-        'http://127.0.0.1:8000/api/payments/create-order/',
+        'http://127.0.0.1:8000/api/create-razorpay-order/',
         { booking_id: bookingIdToUse },
         {
           headers: {
@@ -89,9 +89,9 @@ const Payment = () => {
 
       console.log("12. Order created successfully:", orderResponse.data);
 
-      if (!orderResponse.data.success) {
-        throw new Error(orderResponse.data.error || 'Failed to create order');
-      }
+      if (!orderResponse.data.order_id) {
+  throw new Error('Failed to create order');
+}
 
       // Step 2: Load Razorpay script
       const isScriptLoaded = await loadRazorpayScript();
@@ -108,7 +108,7 @@ const Payment = () => {
         "description": `Hostel Room Booking - Room ${booking?.room_number || 'N/A'}`,
         "image": "https://your-logo-url.com/logo.png",  // Optional: Add your logo URL
         "order_id": orderResponse.data.order_id,  // Order ID from backend
-        "callback_url": "http://127.0.0.1:8000/api/payments/verify/",  // Verification endpoint
+        "callback_url": "http://127.0.0.1:8000/api/verify-razorpay-payment/",  // Verification endpoint
         "prefill": {
           "name": orderResponse.data.student_name || '',
           "email": orderResponse.data.student_email || '',
@@ -128,7 +128,7 @@ const Payment = () => {
           try {
             // Verify payment with backend
             const verifyResponse = await axios.post(
-              'http://127.0.0.1:8000/api/payments/verify/',
+              'http://127.0.0.1:8000/api/verify-razorpay-payment/',
               {
                 razorpay_order_id: response.razorpay_order_id,
                 razorpay_payment_id: response.razorpay_payment_id,
@@ -146,7 +146,7 @@ const Payment = () => {
 
             if (verifyResponse.data.success) {
               alert('✅ Payment successful! Your room has been confirmed.');
-              navigate('/room-allocation');
+              navigate('/homepage');
             } else {
               throw new Error('Payment verification failed');
             }
@@ -276,7 +276,7 @@ const Payment = () => {
             <button
               onClick={() => {
                 console.log("Cancel button clicked");
-                navigate('/room-allocation');
+                navigate('/homepage');
               }}
               className="w-full mt-3 py-3 bg-gray-200 text-gray-700 rounded-lg font-semibold hover:bg-gray-300 transition-all"
             >

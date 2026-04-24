@@ -1,303 +1,169 @@
 # applications/views.py - COMPLETE FIXED VERSION
 
 from rest_framework import status
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, permission_classes, parser_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
-from django.contrib.auth import authenticate
-from django.contrib.auth.models import User
-from django.db import transaction
+from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.views import APIView
+
+from django.contrib.auth import authenticate, get_user_model
+from django.db import models, transaction
 from django.views.decorators.csrf import csrf_exempt
-from django.http import JsonResponse
-from .models import StudentProfile, Block, Floor, Room, Booking, HostelApplication, Payment
-from .models import PasswordResetOTP, StudentRegistration, Certificate, Student, MessPayment
-from .serializers import *
-import traceback
-import razorpay
-import hmac
-import hashlib
-import json
+from django.http import JsonResponse, HttpResponse
 from django.conf import settings
-import random
 from django.core.mail import send_mail
 from django.contrib.auth.hashers import make_password, check_password
-import io
-from django.core.files.base import ContentFile
-from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import letter
-from rest_framework.decorators import parser_classes
-from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
-from datetime import datetime
-from rest_framework.views import APIView
-from django.contrib.auth import get_user_model
-import uuid
-from django.utils import timezone
-from .pdf_generator import send_room_allotment_email
-from reportlab.lib.pagesizes import A4, landscape
-from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.units import inch, mm
-from django.http import HttpResponse, Http404
-import pandas as pd
 from django.core.files.storage import default_storage
 from django.core.files.base import ContentFile
-from .models import BillingRate, StudentBilling
-from django.db.models import Sum
 
-# Initialize Razorpay client
+# Make sure StudentProfile is NOT imported here
+from .models import Block, Floor, Room, Booking, Payment
+from .models import PasswordResetOTP, StudentRegistration, Certificate, Student, MessPayment, BillingRate
+from .serializers import *
+from .pdf_generator import send_room_allotment_email
+
+import traceback
+import razorpay
+import json
+import random
+from datetime import datetime
+import pandas as pd
+
 razorpay_client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
 client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
 
 User = get_user_model()
 
-# ==================== JWT AUTHENTICATION VIEWS ====================
-
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def register(request):
-    """Register a new student"""
+    """Register student credentials in StudentRegistration and initialize empty Student profile"""
     try:
-        print("Registration data received:", request.data)
-        
-        serializer = RegisterSerializer(data=request.data)
-        
-        if serializer.is_valid():
-            with transaction.atomic():
-                user = serializer.save()
-                
-                # Generate tokens
-                refresh = RefreshToken.for_user(user)
-                
-                # Create or update StudentProfile with admission number
-                admission = request.data.get('admission_no') or request.data.get('admission_number') or request.data.get('admission', '')
-                year = request.data.get('year', 1)
-                branch = request.data.get('branch', '')
-                phone_number = request.data.get('phone', '') or request.data.get('phone_number', '')
-                
-                # Create or get the profile and save the admission number
-                profile, created = StudentProfile.objects.get_or_create(user=user)
-                profile.admission = admission
-                profile.year = year
-                profile.branch = branch
-                profile.phone_number = phone_number
-                profile.save()
-                
-                print(f"Saved/Updated profile for {user.username}: Admission={profile.admission}, Created={created}")
-                
-                return Response({
-                    'success': True,
-                    'user': {
-                        'id': user.id,
-                        'username': user.username,
-                        'email': user.email,
-                        'first_name': user.first_name,
-                        'last_name': user.last_name,
-                        'full_name': user.get_full_name(),
-                        'admission': profile.admission,
-                        'year': profile.year,
-                        'branch': profile.branch,
-                        'phone_number': profile.phone_number
-                    },
-                    'refresh': str(refresh),
-                    'access': str(refresh.access_token),
-                    'message': 'Registration successful'
-                }, status=status.HTTP_201_CREATED)
-        else:
-            print("Serializer errors:", serializer.errors)
-            return Response({
-                'success': False,
-                'errors': serializer.errors
-            }, status=status.HTTP_400_BAD_REQUEST)
-            
-    except Exception as e:
-        print("Error in registration:", str(e))
-        print(traceback.format_exc())
-        return Response({
-            'success': False,
-            'error': str(e)
-        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        data = request.data
+        admission_no = data.get("admission_no", "").strip()
+        reg_no = data.get("reg_no", "").strip()
+        full_name = data.get("full_name", "").strip()
+        phone = data.get("phone", "").strip()
+        email = data.get("email", "").strip()
+        password = data.get("password", "")
 
+        if not admission_no or not password:
+            return Response({"error": "Admission number and password are required"}, status=400)
+
+        with transaction.atomic():
+            # 1. Create secure auth record
+            if StudentRegistration.objects.filter(admission_no=admission_no).exists():
+                return Response({"error": "Admission number already registered"}, status=400)
+
+            StudentRegistration.objects.create(
+                admission_no=admission_no,
+                reg_no=reg_no if reg_no else admission_no,
+                full_name=full_name,
+                phone=phone,
+                email=email,
+                password=make_password(password)
+            )
+            
+            # 2. Create Django user for JWT generation (Username = Admission No)
+            user, _ = User.objects.get_or_create(username=admission_no, defaults={'email': email})
+            user.set_password(password)
+            user.first_name = full_name.split()[0] if full_name else ''
+            user.save()
+            
+            # 3. Create initial empty Student profile
+            Student.objects.get_or_create(
+                admission_no=admission_no,
+                defaults={
+                    'reg_no': reg_no if reg_no else admission_no,
+                    'full_name': full_name,
+                    'email': email,
+                    'mobile': phone
+                }
+            )
+
+            refresh = RefreshToken.for_user(user)
+
+            return Response({
+                "success": True,
+                "message": "Registration successful",
+                "access": str(refresh.access_token),
+                "refresh": str(refresh),
+                "user": {
+                    "username": user.username,
+                    "admission_number": admission_no,
+                    "full_name": full_name
+                }
+            }, status=201)
+
+    except Exception as e:
+        print("Registration error:", str(e))
+        return Response({"error": str(e)}, status=500)
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def login(request):
-    """Login a student using admission number only"""
+    """Login against StudentRegistration and return JWT"""
     try:
-        admission_number = request.data.get('admission_number')
-        password = request.data.get('password')
-        
-        print(f"Login attempt with admission number: {admission_number}")
-        
-        if not admission_number or not password:
-            return Response({
-                'success': False,
-                'error': 'Please provide admission_number and password'
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
-        user = None
-        
-        # Find user by admission number in StudentProfile
-        try:
-            student_profile = StudentProfile.objects.filter(admission=admission_number).first()
-            if student_profile:
-                user = authenticate(username=student_profile.user.username, password=password)
-                print(f"Found user by admission number: {user}")
-        except Exception as e:
-            print(f"Error finding by admission: {e}")
-        
-        # If not found, check in StudentRegistration model
-        if not user:
-            try:
-                student_reg = StudentRegistration.objects.filter(admission_no=admission_number).first()
-                if student_reg:
-                    # Create Django user if doesn't exist
-                    user, created = User.objects.get_or_create(
-                        username=student_reg.admission_no,
-                        defaults={
-                            'email': student_reg.email,
-                            'first_name': student_reg.full_name.split()[0] if student_reg.full_name else '',
-                            'last_name': ' '.join(student_reg.full_name.split()[1:]) if student_reg.full_name else ''
-                        }
-                    )
-                    if created:
-                        user.set_password(password)
-                        user.save()
-                    
-                    # Create student profile
-                    StudentProfile.objects.get_or_create(
-                        user=user,
-                        defaults={
-                            'admission': student_reg.admission_no,
-                            'phone_number': student_reg.phone,
-                            'year': 1,
-                            'branch': ''
-                        }
-                    )
-                    
-                    user = authenticate(username=user.username, password=password)
-                    print(f"Found in StudentRegistration: {user}")
-            except Exception as e:
-                print(f"Error in StudentRegistration: {e}")
-        
-        # Login successful
-        if user and user.is_active:
+        login_id = request.data.get("login_id") or request.data.get("admission_number")
+        password = request.data.get("password")
+
+        if not login_id or not password:
+            return Response({"error": "Please provide ID and password"}, status=400)
+
+        login_id = login_id.strip()
+
+        # 1. Validate against StudentRegistration
+        student_reg = StudentRegistration.objects.filter(admission_no=login_id).first()
+        if not student_reg:
+            student_reg = StudentRegistration.objects.filter(reg_no=login_id).first()
+
+        if student_reg and check_password(password, student_reg.password):
+            # 2. Sync with Django User for JWT
+            user, _ = User.objects.get_or_create(username=student_reg.admission_no, defaults={'email': student_reg.email})
+            user.set_password(password)
+            user.save()
+            
             refresh = RefreshToken.for_user(user)
             
-            # Get profile details
-            try:
-                profile = StudentProfile.objects.get(user=user)
-                year = profile.year
-                branch = profile.branch
-                phone_number = profile.phone_number
-                address = profile.address
-            except StudentProfile.DoesNotExist:
-                year = 1
-                branch = ""
-                phone_number = ""
-                address = ""
-            
+            # 3. Fetch detailed profile info
+            student_profile = Student.objects.filter(admission_no=student_reg.admission_no).first()
+            year = student_profile.class_yr if student_profile else ""
+            branch = student_profile.branch if student_profile else ""
+
             return Response({
-                'success': True,
-                'user': {
-                    'id': user.id,
-                    'username': user.username,
-                    'email': user.email,
-                    'first_name': user.first_name,
-                    'last_name': user.last_name,
-                    'full_name': user.get_full_name(),
-                    'admission_number': admission_number,
-                    'year': year,
-                    'branch': branch,
-                    'phone_number': phone_number,
-                    'address': address
-                },
-                'access': str(refresh.access_token),
-                'refresh': str(refresh),
-                'message': 'Login successful'
+                "success": True,
+                "access": str(refresh.access_token),
+                "refresh": str(refresh),
+                "message": "Login successful",
+                "user": {
+                    "username": user.username,
+                    "admission_number": student_reg.admission_no,
+                    "reg_no": student_reg.reg_no,
+                    "full_name": student_reg.full_name,
+                    "year": year,
+                    "branch": branch,
+                    "email": student_reg.email
+                }
             })
-        
-        # Login failed
-        return Response({
-            'success': False,
-            'error': 'Invalid admission number or password'
-        }, status=status.HTTP_401_UNAUTHORIZED)
-        
+            
+        return Response({"error": "Invalid credentials"}, status=401)
     except Exception as e:
-        print(f"Login error: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return Response({
-            'success': False,
-            'error': str(e)
-        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-
+        return Response({"error": str(e)}, status=500)
+    
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def refresh_token(request):
     """Refresh JWT token"""
     refresh_token = request.data.get('refresh')
-    
     if not refresh_token:
-        return Response({
-            'error': 'Refresh token required'
-        }, status=status.HTTP_400_BAD_REQUEST)
-    
+        return Response({'error': 'Refresh token required'}, status=400)
     try:
         refresh = RefreshToken(refresh_token)
-        return Response({
-            'access': str(refresh.access_token)
-        })
-    except Exception as e:
-        return Response({
-            'error': 'Invalid refresh token'
-        }, status=status.HTTP_401_UNAUTHORIZED)
-
-
-@api_view(['GET'])
-@permission_classes([IsAuthenticated])
-def get_profile(request):
-    """Get student profile"""
-    try:
-        user = request.user
-        try:
-            profile = StudentProfile.objects.get(user=user)
-            admission = profile.admission
-            year = profile.year
-            branch = profile.branch
-            phone_number = profile.phone_number
-            address = profile.address
-        except StudentProfile.DoesNotExist:
-            admission = ""
-            year = 1
-            branch = ""
-            phone_number = ""
-            address = ""
-        
-        return Response({
-            'success': True,
-            'user': {
-                'id': user.id,
-                'username': user.username,
-                'email': user.email,
-                'first_name': user.first_name,
-                'last_name': user.last_name,
-                'full_name': user.get_full_name(),
-                'admission': admission,
-                'year': year,
-                'branch': branch,
-                'phone_number': phone_number,
-                'address': address
-            }
-        })
-    except Exception as e:
-        return Response({
-            'success': False,
-            'error': str(e)
-        }, status=status.HTTP_400_BAD_REQUEST)
-
+        return Response({'access': str(refresh.access_token)})
+    except Exception:
+        return Response({'error': 'Invalid refresh token'}, status=401)
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
@@ -306,127 +172,375 @@ def logout(request):
     try:
         refresh_token = request.data.get('refresh')
         if refresh_token:
-            try:
-                token = RefreshToken(refresh_token)
-                token.blacklist()
-            except:
-                pass
-        return Response({
-            'success': True,
-            'message': 'Logged out successfully'
-        })
+            token = RefreshToken(refresh_token)
+            token.blacklist()
+        return Response({'success': True, 'message': 'Logged out successfully'})
     except Exception as e:
-        return Response({
-            'success': False,
-            'error': str(e)
-        }, status=status.HTTP_400_BAD_REQUEST)
+        return Response({'success': False, 'error': str(e)}, status=400)
+    
+@csrf_exempt
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def admin_login(request):
+    """Admin login with username/password from AdminWardenUser model"""
+    try:
+        username = request.data.get("username") or request.data.get("admin_id") or request.POST.get("username") or request.POST.get("admin_id")
+        password = request.data.get("password") or request.POST.get("password")
+        
+        if not username or not password:
+            return Response({"error": "Both username and password are required"}, status=400)
+        
+        from .models import AdminWardenUser
+        from django.contrib.auth.hashers import check_password
+        
+        admin = AdminWardenUser.objects.filter(username=username).first()
+        
+        if not admin:
+            return Response({"error": "Invalid credentials"}, status=401)
+        
+        if check_password(password, admin.password):
+            return Response({
+                "status": "success",
+                "message": "Admin login successful",
+                "admin": {
+                    "username": admin.username,
+                    "email": admin.email,
+                    "role": admin.role
+                }
+            })
+        
+        return Response({"error": "Invalid credentials"}, status=401)
+        
+    except Exception as e:
+        return Response({"error": f"Server error: {str(e)}"}, status=500)
 
+# ==================== PROFILE UPDATE VIEW ====================
 
 # ==================== PROFILE UPDATE VIEW ====================
 
 @api_view(['POST'])
+@parser_classes([MultiPartParser, FormParser])
 @permission_classes([IsAuthenticated])
 def submit_profile(request):
-    """Submit or update student profile and hostel application"""
+    """Submit or update data strictly in the Student model"""
     try:
-        user = request.user
         data = request.data
+        admission_no = request.user.username 
         
-        print("Received profile submission data:", data)
+        student, created = Student.objects.get_or_create(admission_no=admission_no)
         
-        # Get or create student profile
-        profile, created = StudentProfile.objects.get_or_create(user=user)
+        # Update text fields
+        student.full_name = data.get("full_name", student.full_name)
+        student.aadhar = data.get("aadhar_no", student.aadhar)
+        student.reg_no = data.get("reg_no", student.reg_no)
+        student.class_yr = data.get("year", student.class_yr)
+        student.degree = data.get("degree", getattr(student, 'degree', ''))
+        student.branch = data.get("branch", student.branch)
+        student.roll_no = data.get("roll_no", student.roll_no)
+        student.mobile = data.get("mobile", student.mobile)
+        student.email = data.get("email", student.email)
+        student.address = data.get("address", student.address)
+        student.caste = data.get("caste", student.caste)
+        student.amount = data.get("amount", student.amount)
         
-        # Update user's name if provided
-        if 'full_name' in data and data['full_name']:
-            name_parts = data['full_name'].split(' ', 1)
-            user.first_name = name_parts[0]
-            if len(name_parts) > 1:
-                user.last_name = name_parts[1]
-            user.save()
+        if data.get("dob"):
+            student.dob = data.get("dob")
+            
+        # 🔥 Fixed: Added parents' aadhar numbers to be saved
+        student.father_name = data.get("father_name", student.father_name)
+        student.father_phone = data.get("father_phone", student.father_phone)
+        student.father_aadhar_no = data.get("father_aadhar_no", getattr(student, 'father_aadhar_no', ''))
         
-        # Update profile fields
-        if 'mobile' in data:
-            profile.phone_number = data['mobile']
-        if 'address' in data:
-            profile.address = data['address']
-        if 'email' in data:
-            user.email = data['email']
-            user.save()
+        student.mother_name = data.get("mother_name", student.mother_name)
+        student.mother_phone = data.get("mother_phone", student.mother_phone)
+        student.mother_aadhar_no = data.get("mother_aadhar_no", getattr(student, 'mother_aadhar_no', ''))
         
-        profile.save()
+        student.guardian_name = data.get("guardian_name", getattr(student, 'guardian_name', ''))
+        student.guardian_phone = data.get("guardian_phone", getattr(student, 'guardian_phone', ''))
         
-        # Create hostel application
-        application = HostelApplication.objects.create(
-            full_name=data.get('full_name', user.get_full_name()),
-            aadhar=data.get('aadhar', ''),
-            class_yr=data.get('class_yr', ''),
-            branch=data.get('branch', profile.branch),
-            roll_no=data.get('roll_no', ''),
-            dob=data.get('dob', None),
-            mobile=data.get('mobile', profile.phone_number),
-            email=data.get('email', user.email),
-            address=data.get('address', profile.address),
-            caste=data.get('caste', ''),
-            catering=data.get('catering', ''),
-            amount=data.get('amount', '')
-        )
+        # Update File fields
+        if request.FILES.get("student_photo"): 
+            student.student_photo = request.FILES.get("student_photo")
+        if request.FILES.get("father_photo"): 
+            student.father_photo = request.FILES.get("father_photo")
+        if request.FILES.get("mother_photo"): 
+            student.mother_photo = request.FILES.get("mother_photo")
+        if request.FILES.get("aadhar_pdf"): 
+            student.aadhar_pdf = request.FILES.get("aadhar_pdf")
+        if request.FILES.get("father_aadhar_pdf"): 
+            student.father_aadhar = request.FILES.get("father_aadhar_pdf")
+        if request.FILES.get("mother_aadhar_pdf"): 
+            student.mother_aadhar = request.FILES.get("mother_aadhar_pdf")
+        
+        student.save()
         
         return Response({
-            'success': True,
-            'message': 'Application submitted successfully',
-            'application_id': application.id
-        }, status=status.HTTP_201_CREATED)
+            "status": "success",
+            "message": "Profile saved successfully"
+        }, status=200)
         
     except Exception as e:
-        print("Error submitting application:", str(e))
         print(traceback.format_exc())
-        return Response({
-            'success': False,
-            'error': str(e)
-        }, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"error": str(e)}, status=500)
 
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def get_student_profile(request):
+    """Get complete student profile by admission or registration number"""
+    try:
+        admission_no = request.GET.get('admission_no')
+        reg_no = request.GET.get('reg_no')
+        
+        student = None
+        
+        # Search by admission number first
+        if admission_no and admission_no.strip():
+            search_val = admission_no.strip()
+            student = Student.objects.filter(admission_no__iexact=search_val).first()
+            if not student:
+                student = Student.objects.filter(admission_no=search_val).first()
+        
+        # If not found, search by registration number
+        if not student and reg_no and reg_no.strip():
+            search_val = reg_no.strip()
+            student = Student.objects.filter(reg_no__iexact=search_val).first()
+            if not student:
+                student = Student.objects.filter(reg_no=search_val).first()
+            if not student:
+                student = Student.objects.filter(admission_no__iexact=search_val).first()
+            if not student:
+                student = Student.objects.filter(admission_no=search_val).first()
+        
+        if not student:
+            return Response({"error": "Student not found"}, status=404)
+
+        print(f"Found student: {student.full_name}, admission_no={student.admission_no}, reg_no={student.reg_no}")
+
+        # Get booking info - try both admission_no and reg_no to find user
+        user = User.objects.filter(username=student.admission_no).first()
+        if not user and student.reg_no and student.reg_no.strip():
+            user = User.objects.filter(username=student.reg_no.strip()).first()
+        booking = Booking.objects.filter(student=user, status='confirmed').first() if user else None
+        
+        print(f"Booking search: admission_no={student.admission_no}, reg_no={student.reg_no}, user_found={bool(user)}, booking={bool(booking)}")
+        
+        room_details = None
+        if booking:
+            room = booking.room
+            room_details = {
+                'room_number': room.room_number,
+                'block_name': room.floor.block.display_name,
+                'floor': room.floor.floor_number,
+                'room_type': room.get_room_type_display(),
+                'sharing_type': f"{room.capacity} Sharing",
+                'allotted_date': booking.booking_date.strftime('%Y-%m-%d')
+            }
+        elif student.block and student.block != "Not Allotted":
+            room_details = {
+                'room_number': student.room_no or "Not Allotted",
+                'block_name': student.block,
+                'floor': "N/A",
+                'room_type': "N/A",
+                'sharing_type': "N/A",
+                'allotted_date': "N/A"
+            }
+        
+        def get_file_url(field):
+            if field and hasattr(field, 'url'):
+                return field.url
+            return None
+        
+        return Response({
+            'full_name': student.full_name,
+            'aadhar': student.aadhar,
+            'admission_no': student.admission_no,
+            'reg_no': student.reg_no,
+            'degree': getattr(student, 'degree', ''),
+            'class_yr': student.class_yr,
+            'branch': student.branch,
+            'roll_no': student.roll_no,
+            'dob': student.dob.strftime('%Y-%m-%d') if student.dob else '',
+            'mobile': student.mobile,
+            'email': student.email,
+            'address': student.address,
+            'caste': student.caste,
+            'amount': student.amount,
+            'catering': student.catering,
+            'block': room_details['block_name'] if room_details else student.block or "Not Allotted",
+            'room_no': room_details['room_number'] if room_details else student.room_no or student.room or "Not Allotted",
+            
+            # Parents Info
+            'father_name': student.father_name,
+            'father_phone': student.father_phone,
+            'mother_name': student.mother_name,
+            'mother_phone': student.mother_phone,
+            'guardian_name': student.guardian_name,
+            'guardian_phone': student.guardian_phone,
+            
+            # FILES
+            'student_photo': get_file_url(student.student_photo),
+            'father_photo': get_file_url(student.father_photo),
+            'mother_photo': get_file_url(student.mother_photo),
+            'father_aadhar': get_file_url(student.father_aadhar),
+            'mother_aadhar': get_file_url(student.mother_aadhar),
+            'guardian_aadhar': get_file_url(student.guardian_aadhar),
+            
+            # Room Details (nested)
+            'room_details': room_details,
+            'hostel_name': student.hostel_name or "N/A",
+            'has_booking': bool(booking)
+        })
+
+    except Exception as e:
+        print("Error fetching profile:", str(e))
+        return Response({"error": str(e)}, status=500)
+    
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def get_student_hostel(request):
+    """Get concise hostel allocation for a student"""
+    reg_no = request.GET.get('reg_no')
+    admission_no = request.GET.get('admission_no')
+    
+    if not reg_no and not admission_no:
+        return JsonResponse({'error': 'Registration or admission number required'}, status=400)
+    
+    try:
+        # Search for student using both admission and reg numbers
+        search_value = reg_no or admission_no
+        student = Student.objects.filter(admission_no__iexact=search_value).first()
+        if not student:
+            student = Student.objects.filter(reg_no__iexact=search_value).first()
+        if not student:
+            student = Student.objects.filter(admission_no=search_value).first()
+        if not student:
+            student = Student.objects.filter(reg_no=search_value).first()
+        
+        if not student:
+            return JsonResponse({'success': False, 'message': 'Student not found'}, status=404)
+        
+        # Try finding user by admission_no first, then reg_no
+        user = User.objects.filter(username=student.admission_no).first()
+        if not user and student.reg_no:
+            user = User.objects.filter(username=student.reg_no).first()
+        booking = Booking.objects.filter(student=user, status='confirmed').first() if user else None
+        
+        if booking and booking.room:
+            return JsonResponse({
+                'success': True,
+                'block_name': booking.room.floor.block.display_name,
+                'block': booking.room.floor.block.name,
+                'room_number': booking.room.room_number,
+                'booking_id': booking.id,
+                'room_id': booking.room.id
+            })
+        
+        # Return student block/room from their profile if no active booking
+        if student.block and student.block != "Not Allotted":
+            return JsonResponse({
+                'success': True,
+                'block_name': student.block,
+                'block': student.block.lower().replace(' ', '-'),
+                'room_number': student.room_no or "Not Allotted",
+                'booking_id': None,
+                'room_id': None,
+                'note': 'Historical record (not currently booked)'
+            })
+            
+        return JsonResponse({'success': False, 'message': 'No active hostel allocation'}, status=404)
+            
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
 
 # ==================== BLOCK VIEWS ====================
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_all_blocks(request):
-    """Get all blocks"""
     try:
         blocks = Block.objects.all()
-        serializer = BlockSerializer(blocks, many=True)
-        return Response(serializer.data)
+        return Response(BlockSerializer(blocks, many=True).data)
     except Exception as e:
         return Response({'error': str(e)}, status=500)
-
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_block_for_year(request):
-    """Get the appropriate block based on student's year"""
+    """Get the appropriate block and floors based on student's year"""
     try:
-        user = request.user
-        profile = StudentProfile.objects.get(user=user)
-        year = profile.year
+        student = Student.objects.get(admission_no=request.user.username)
         
-        block_mapping = {
-            1: 'orange',
-            2: 'meta',
-            3: 'alumini',
-            4: 'orange',
-        }
+        # Extract numeric year from class_yr (e.g. "1st Year" -> 1)
+        year_str = str(student.class_yr or "1")
+        year = int(''.join(filter(str.isdigit, year_str))) if any(c.isdigit() for c in year_str) else 1
         
-        block_name = block_mapping.get(year, 'orange')
-        block = Block.objects.get(name=block_name)
-        serializer = BlockSerializer(block)
+        # Define block and floor mapping based on year
+        # 1st, 3rd, 4th Year: Orange (Floors 1, 2, 3)
+        # 2nd Year: Meta (Floors Ground(0), 1, 2)
+        # 3rd Year: Alumini (Floors 1, 2, 3)
+        
+        if year == 1:
+            block_name = 'orange'
+            allowed_floors = [1, 2, 3]
+            message = 'Orange Hostel (Floors 1-3) for 1st Year'
+        elif year == 2:
+            block_name = 'meta'
+            allowed_floors = [0, 1, 2]
+            message = 'Meta H Hostel (Ground, 1st, 2nd floors) for 2nd Year'
+        elif year == 3:
+            block_name = 'alumini'
+            allowed_floors = [0, 1, 2]
+            message = 'Alumini Hostel (Ground, 1st, 2nd floors) for 3rd Year'
+        elif year == 4:
+            block_name = 'orange'
+            allowed_floors = [4, 5]
+            message = 'Orange Hostel (Floors 4-5) for 4th Year'
+        else:
+            block_name = 'orange'
+            allowed_floors = [1, 2, 3]
+            message = f'Orange Hostel (Floors 1-3) for {year}th Year'
+        
+        # Get block details
+        block = Block.objects.filter(name=block_name).first()
+        if not block:
+            return Response({'error': f'Block {block_name} not found'}, status=404)
+        
+        # Get floors that match the allowed floor numbers
+        floors = Floor.objects.filter(block=block, floor_number__in=allowed_floors).order_by('floor_number')
+        
+        floor_data = []
+        for floor in floors:
+            rooms = Room.objects.filter(floor=floor, room_type='regular').order_by('room_number')
+            available_rooms = [r for r in rooms if r.current_occupancy < r.capacity]
+            floor_data.append({
+                'floor_id': floor.id,
+                'floor_number': floor.floor_number,
+                'floor_name': f'Floor {floor.floor_number}' if floor.floor_number > 0 else 'Ground Floor',
+                'total_rooms': floor.total_rooms,
+                'available_beds': sum(r.capacity - r.current_occupancy for r in rooms),
+                'rooms': [{
+                    'id': r.id,
+                    'room_number': r.room_number,
+                    'capacity': r.capacity,
+                    'available': r.capacity - r.current_occupancy
+                } for r in rooms]
+            })
         
         return Response({
-            'block': serializer.data,
-            'message': f'Showing {block.display_name} for Year {year} students'
+            'block': {
+                'id': block.id,
+                'name': block.name,
+                'display_name': block.display_name,
+                'total_floors': block.total_floors
+            },
+            'allowed_floors': allowed_floors,
+            'floors': floor_data,
+            'message': message,
+            'student_year': year
         })
-    except Block.DoesNotExist:
-        return Response({'error': 'Block not found'}, status=404)
+    except Student.DoesNotExist:
+        return Response({'error': 'Student Profile not found. Complete your profile first.'}, status=400)
     except Exception as e:
         return Response({'error': str(e)}, status=400)
 
@@ -501,35 +615,47 @@ def book_room(request):
     try:
         # Get student profile first
         try:
-            profile = StudentProfile.objects.get(user=user)
-            student_year = profile.year
-        except StudentProfile.DoesNotExist:
+            student = Student.objects.get(admission_no=user.username)
+            year_str = str(student.class_yr or "1")
+            student_year = int(''.join(filter(str.isdigit, year_str))) if any(c.isdigit() for c in year_str) else 1
+        except Student.DoesNotExist:
             return Response({
                 'error': 'Student profile not found. Please complete your profile first.'
             }, status=status.HTTP_400_BAD_REQUEST)
-        
-        # Use atomic transaction with select_for_update from the start
-        with transaction.atomic():
-            # Fetch room with lock - only fetch once
-            room = Room.objects.select_for_update().get(id=room_id)
             
-            # Check if room is available (using the @property)
-            if not room.is_available:
-                return Response({
-                    'error': f'Room {room.room_number} is not available. Available beds: {room.available_beds}'
-                }, status=status.HTTP_400_BAD_REQUEST)
-            
-            # Check year restriction
-            block_name = room.floor.block.name
-            
-            if student_year == 1 and block_name != 'orange':
-                return Response({'error': '1st year students can only book Orange Hostel'}, status=status.HTTP_400_BAD_REQUEST)
-            if student_year == 2 and block_name != 'meta':
-                return Response({'error': '2nd year students can only book Meta H Hostel'}, status=status.HTTP_400_BAD_REQUEST)
-            if student_year == 3 and block_name != 'alumini':
-                return Response({'error': '3rd year students can only book Alumini Hostel'}, status=status.HTTP_400_BAD_REQUEST)
-            if student_year == 4 and block_name != 'orange':
-                return Response({'error': '4th year students can only book Orange Hostel'}, status=status.HTTP_400_BAD_REQUEST)
+            # Use atomic transaction with select_for_update from the start
+            with transaction.atomic():
+                # Fetch room with lock - only fetch once
+                room = Room.objects.select_for_update().get(id=room_id)
+                
+                # Check if room is available (using the @property)
+                if not room.is_available:
+                    return Response({
+                        'error': f'Room {room.room_number} is not available. Available beds: {room.available_beds}'
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                
+                # Check year/block/floor restriction
+                block_name = room.floor.block.name
+                floor_num = room.floor.floor_number
+                
+                if student_year == 1:
+                    # 1st Year: Orange Hostel, Floors 1, 2, 3
+                    if block_name != 'orange' or floor_num not in [1, 2, 3]:
+                        return Response({'error': '1st year students can only book Orange Hostel (Floors 1-3)'}, status=status.HTTP_400_BAD_REQUEST)
+                elif student_year == 2:
+                    # 2nd Year: Meta Hostel, Floors 0 (Ground), 1, 2
+                    if block_name != 'meta' or floor_num not in [0, 1, 2]:
+                        return Response({'error': '2nd year students can only book Meta H Hostel (Ground, 1st, 2nd floors)'}, status=status.HTTP_400_BAD_REQUEST)
+                elif student_year == 3:
+                    # 3rd Year: Alumini Hostel, Floors 0, 1, 2
+                    if block_name != 'alumini' or floor_num not in [0, 1, 2]:
+                        return Response({'error': '3rd year students can only book Alumini Hostel (Floors 1-3)'}, status=status.HTTP_400_BAD_REQUEST)
+                elif student_year == 4:
+                    # 4th Year: Orange Hostel, Floors 4, 5
+                    if block_name != 'orange' or floor_num not in [4, 5]:
+                        return Response({'error': '4th year students can only book Orange Hostel (Floors 4-5)'}, status=status.HTTP_400_BAD_REQUEST)
+                else:
+                    return Response({'error': f'Invalid year: {student_year}'}, status=status.HTTP_400_BAD_REQUEST)
             
             # Double-check occupancy (redundant but safe)
             if room.current_occupancy >= room.capacity:
@@ -565,7 +691,6 @@ def book_room(request):
         traceback.print_exc()
         return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
     
-
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
@@ -645,11 +770,8 @@ def create_razorpay_order(request):
             }, status=status.HTTP_400_BAD_REQUEST)
         
         # Get student profile for contact details
-        try:
-            student_profile = StudentProfile.objects.get(user=request.user)
-            student_phone = student_profile.phone_number or ''
-        except StudentProfile.DoesNotExist:
-            student_phone = ''
+        student = Student.objects.filter(admission_no=request.user.username).first()
+        student_phone = student.mobile if student else ''
         
         # Create new Razorpay order
         order_amount = int(booking.room.price_per_semester * 100)
@@ -698,7 +820,6 @@ def create_razorpay_order(request):
             'success': False,
             'error': str(e)
         }, status=status.HTTP_400_BAD_REQUEST)
-
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
@@ -772,7 +893,6 @@ def verify_razorpay_payment(request):
             'error': str(e)
         }, status=status.HTTP_400_BAD_REQUEST)
 
-
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_payment_status(request, booking_id):
@@ -805,7 +925,6 @@ def get_payment_status(request, booking_id):
             'success': False,
             'error': str(e)
         }, status=status.HTTP_400_BAD_REQUEST)
-
 
 @csrf_exempt
 def razorpay_webhook(request):
@@ -854,7 +973,6 @@ def razorpay_webhook(request):
     
     return JsonResponse({'error': 'Method not allowed'}, status=405)
 
-
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_payment_details(request, payment_id):
@@ -880,669 +998,6 @@ def get_payment_details(request, payment_id):
             'error': 'Payment not found'
         }, status=status.HTTP_404_NOT_FOUND)
 
-
-# ==================== STUDENT REGISTRATION VIEWS ====================
-
-@api_view(['POST'])
-@permission_classes([AllowAny])
-def register_student(request):
-    """Register a new student in StudentRegistration model"""
-    try:
-        admission_no = request.data.get("admission_no", "").strip()
-        reg_no = request.data.get("reg_no", "").strip()
-        full_name = request.data.get("full_name", "").strip()
-        phone = request.data.get("phone", "").strip()
-        email = request.data.get("email", "").strip()
-        password = request.data.get("password", "")
-
-        # Validate required fields
-        validation_errors = []
-        
-        if not admission_no:
-            validation_errors.append("Admission number is required")
-        if not full_name:
-            validation_errors.append("Full name is required")
-        if not phone:
-            validation_errors.append("Phone number is required")
-        if not email:
-            validation_errors.append("Email is required")
-        if not password:
-            validation_errors.append("Password is required")
-        
-        if validation_errors:
-            return Response({
-                "status": "error",
-                "message": " | ".join(validation_errors)
-            }, status=status.HTTP_400_BAD_REQUEST)
-
-        # Check if exists
-        if StudentRegistration.objects.filter(admission_no=admission_no).exists():
-            return Response({
-                "status": "error",
-                "message": "Admission number already registered"
-            }, status=status.HTTP_400_BAD_REQUEST)
-
-        if phone and StudentRegistration.objects.filter(phone=phone).exists():
-            return Response({
-                "status": "error",
-                "message": "Phone number already registered"
-            }, status=status.HTTP_400_BAD_REQUEST)
-
-        if StudentRegistration.objects.filter(email=email).exists():
-            return Response({
-                "status": "error",
-                "message": "Email already registered"
-            }, status=status.HTTP_400_BAD_REQUEST)
-
-        # Create the student
-        student = StudentRegistration.objects.create(
-            admission_no=admission_no,
-            reg_no=reg_no if reg_no else admission_no,
-            full_name=full_name,
-            phone=phone,
-            email=email,
-            password=make_password(password)
-        )
-        
-        # Also create Django user for JWT
-        user, created = User.objects.get_or_create(
-            username=admission_no,
-            defaults={
-                'email': email,
-                'first_name': full_name.split()[0] if full_name else '',
-                'last_name': ' '.join(full_name.split()[1:]) if full_name else ''
-            }
-        )
-        if created:
-            user.set_password(password)
-            user.save()
-        
-        # Create student profile
-        StudentProfile.objects.get_or_create(
-            user=user,
-            defaults={
-                'admission': admission_no,
-                'phone_number': phone,
-                'year': 1,
-                'branch': ''
-            }
-        )
-
-        return Response({
-            "status": "success",
-            "message": "Registration successful",
-            "student": student.full_name,
-            "admission_no": student.admission_no,
-            "reg_no": student.reg_no
-        }, status=status.HTTP_201_CREATED)
-
-    except Exception as e:
-        print(f"Registration error: {str(e)}")
-        print(traceback.format_exc())
-        return Response({
-            "status": "error",
-            "message": f"Registration failed: {str(e)}"
-        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-
-@api_view(['POST'])
-@permission_classes([AllowAny])
-def student_login(request):
-    """Student login using StudentRegistration model with JWT"""
-    print("=" * 50)
-    print("Student login request received")
-    
-    try:
-        login_id = request.data.get("login_id", "").strip()
-        password = request.data.get("password", "").strip()
-
-        print(f"Login ID: {login_id}")
-
-        if not login_id or not password:
-            return Response({
-                "error": "Both login ID and password are required"
-            }, status=status.HTTP_400_BAD_REQUEST)
-
-        # Find student
-        student = StudentRegistration.objects.filter(admission_no=login_id).first()
-        if not student:
-            student = StudentRegistration.objects.filter(reg_no=login_id).first()
-        if not student:
-            student = StudentRegistration.objects.filter(email=login_id).first()
-
-        if student and check_password(password, student.password):
-            # Get or create Django user
-            user, created = User.objects.get_or_create(
-                username=student.admission_no,
-                defaults={
-                    'email': student.email,
-                    'first_name': student.full_name.split()[0] if student.full_name else '',
-                    'last_name': ' '.join(student.full_name.split()[1:]) if student.full_name else ''
-                }
-            )
-            
-            if created:
-                user.set_password(password)
-                user.save()
-            
-            # Create student profile
-            StudentProfile.objects.get_or_create(
-                user=user,
-                defaults={
-                    'admission': student.admission_no,
-                    'phone_number': student.phone,
-                    'year': 1,
-                    'branch': ''
-                }
-            )
-            
-            # Generate JWT
-            refresh = RefreshToken.for_user(user)
-            
-            return Response({
-                "status": "success",
-                "message": "Login successful",
-                "access": str(refresh.access_token),
-                "refresh": str(refresh),
-                "user": {
-                    "id": user.id,
-                    "username": user.username,
-                    "email": user.email,
-                    "full_name": student.full_name,
-                    "admission_no": student.admission_no,
-                    "reg_no": student.reg_no,
-                    "phone": student.phone
-                }
-            }, status=status.HTTP_200_OK)
-        else:
-            return Response({
-                "error": "Invalid credentials"
-            }, status=status.HTTP_401_UNAUTHORIZED)
-
-    except Exception as e:
-        print(f"Login error: {str(e)}")
-        print(traceback.format_exc())
-        return Response({
-            "error": f"Login failed: {str(e)}"
-        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-
-# ==================== ADMIN LOGIN ====================
-
-@csrf_exempt
-@api_view(['POST'])
-@permission_classes([AllowAny])
-def admin_login(request):
-    """Admin login with JWT"""
-    try:
-        print("=" * 50)
-        print("Admin login request received")
-        
-        admin_id = None
-        password = None
-        
-        # Parse request body
-        if request.body:
-            try:
-                if isinstance(request.body, bytes):
-                    body_str = request.body.decode('utf-8')
-                else:
-                    body_str = str(request.body)
-                
-                if body_str.startswith('"') and body_str.endswith('"'):
-                    body_str = body_str[1:-1]
-                
-                body_str = body_str.replace('\\"', '"')
-                body_str = body_str.replace('\n', '').replace('\r', '').strip()
-                
-                data = json.loads(body_str)
-                admin_id = data.get("admin_id")
-                password = data.get("password")
-                
-            except json.JSONDecodeError as e:
-                print(f"JSON decode error: {e}")
-                if hasattr(request, 'data') and request.data:
-                    if isinstance(request.data, dict):
-                        admin_id = request.data.get("admin_id")
-                        password = request.data.get("password")
-        
-        if not admin_id or not password:
-            admin_id = request.POST.get("admin_id")
-            password = request.POST.get("password")
-        
-        print(f"Admin ID: {admin_id}")
-        
-        if not admin_id or not password:
-            return Response({
-                "error": "Both admin ID and password are required"
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
-        user = authenticate(username=admin_id, password=password)
-        
-        if user and user.is_superuser:
-            refresh = RefreshToken.for_user(user)
-            
-            return Response({
-                "status": "success",
-                "message": "Admin login successful",
-                "admin": user.username,
-                "access": str(refresh.access_token),
-                "refresh": str(refresh)
-            }, status=status.HTTP_200_OK)
-        
-        if user and not user.is_superuser:
-            return Response({
-                "error": "Access denied. Not an admin account."
-            }, status=status.HTTP_403_FORBIDDEN)
-        
-        return Response({
-            "error": "Invalid admin credentials"
-        }, status=status.HTTP_401_UNAUTHORIZED)
-        
-    except Exception as e:
-        print(f"Admin login error: {str(e)}")
-        print(traceback.format_exc())
-        return Response({
-            "error": f"Server error: {str(e)}"
-        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-# ==================== PROFILE SUBMISSION ====================
-
-@api_view(['POST'])
-@parser_classes([MultiPartParser, FormParser])
-@permission_classes([AllowAny])
-def submit_profile_second(request):
-    """Submit or UPDATE student profile with all details"""
-    try:
-        data = request.data
-        admission_no = data.get("admission_no")
-        
-        print(f"📝 Profile submission/update for admission: {admission_no}")
-        print(f"Data keys: {list(data.keys())}")
-        print(f"Files: {list(request.FILES.keys())}")
-
-        if not admission_no:
-            return Response({
-                "status": "error",
-                "message": "Admission number is required"
-            }, status=status.HTTP_400_BAD_REQUEST)
-
-        # Parse date of birth
-        dob_value = data.get("dob")
-        if dob_value:
-            try:
-                dob_value = datetime.strptime(dob_value, "%Y-%m-%d").date()
-            except:
-                dob_value = None
-        else:
-            dob_value = None
-
-        # Clean aadhar number
-        aadhar = data.get("aadhar", "").replace(" ", "")
-
-        # Check if profile already exists
-        existing_student = Student.objects.filter(admission_no=admission_no).first()
-        
-        if existing_student:
-            # UPDATE existing profile
-            print(f"🔄 Updating existing profile for {admission_no}")
-            
-            existing_student.full_name = data.get("full_name", existing_student.full_name)
-            existing_student.aadhar = aadhar or existing_student.aadhar
-            existing_student.reg_no = data.get("reg_no", existing_student.reg_no)
-            existing_student.class_yr = data.get("class_yr", existing_student.class_yr)
-            existing_student.branch = data.get("branch", existing_student.branch)
-            existing_student.roll_no = data.get("roll_no", existing_student.roll_no)
-            existing_student.dob = dob_value or existing_student.dob
-            existing_student.mobile = data.get("mobile", existing_student.mobile)
-            existing_student.email = data.get("email", existing_student.email)
-            existing_student.address = data.get("address", existing_student.address)
-            existing_student.caste = data.get("caste", existing_student.caste)
-            existing_student.catering = data.get("catering", existing_student.catering)
-            existing_student.amount = data.get("amount", existing_student.amount)
-            existing_student.father_name = data.get("father_name", existing_student.father_name)
-            existing_student.father_phone = data.get("father_phone", existing_student.father_phone)
-            existing_student.mother_name = data.get("mother_name", existing_student.mother_name)
-            existing_student.mother_phone = data.get("mother_phone", existing_student.mother_phone)
-            existing_student.guardian_name = data.get("guardian_name", existing_student.guardian_name)
-            existing_student.guardian_phone = data.get("guardian_phone", existing_student.guardian_phone)
-            
-            # Update files if new ones are provided
-            if request.FILES.get("student_photo"):
-                existing_student.student_photo = request.FILES.get("student_photo")
-            if request.FILES.get("father_aadhar"):
-                existing_student.father_aadhar = request.FILES.get("father_aadhar")
-            if request.FILES.get("father_photo"):
-                existing_student.father_photo = request.FILES.get("father_photo")
-            if request.FILES.get("mother_aadhar"):
-                existing_student.mother_aadhar = request.FILES.get("mother_aadhar")
-            if request.FILES.get("mother_photo"):
-                existing_student.mother_photo = request.FILES.get("mother_photo")
-            if request.FILES.get("guardian_aadhar"):
-                existing_student.guardian_aadhar = request.FILES.get("guardian_aadhar")
-            
-            existing_student.save()
-            
-            return Response({
-                "status": "success",
-                "message": "Profile updated successfully",
-                "student": existing_student.full_name,
-                "admission_no": existing_student.admission_no
-            }, status=status.HTTP_200_OK)
-            
-        else:
-            # CREATE new profile
-            print(f"✨ Creating new profile for {admission_no}")
-            
-            student = Student.objects.create(
-                full_name=data.get("full_name", ""),
-                aadhar=aadhar,
-                admission_no=admission_no,
-                reg_no=data.get("reg_no", ""),
-                class_yr=data.get("class_yr", ""),
-                branch=data.get("branch", ""),
-                roll_no=data.get("roll_no", ""),
-                dob=dob_value,
-                mobile=data.get("mobile", ""),
-                email=data.get("email", ""),
-                address=data.get("address", ""),
-                caste=data.get("caste", ""),
-                catering=data.get("catering", ""),
-                amount=data.get("amount", "13000"),
-                student_photo=request.FILES.get("student_photo"),
-                father_name=data.get("father_name", ""),
-                father_phone=data.get("father_phone", ""),
-                father_aadhar=request.FILES.get("father_aadhar"),
-                father_photo=request.FILES.get("father_photo"),
-                mother_name=data.get("mother_name", ""),
-                mother_phone=data.get("mother_phone", ""),
-                mother_aadhar=request.FILES.get("mother_aadhar"),
-                mother_photo=request.FILES.get("mother_photo"),
-                guardian_name=data.get("guardian_name", ""),
-                guardian_phone=data.get("guardian_phone", ""),
-                guardian_aadhar=request.FILES.get("guardian_aadhar"),
-            )
-
-            return Response({
-                "status": "success",
-                "message": "Profile submitted successfully",
-                "student": student.full_name,
-                "admission_no": student.admission_no
-            }, status=status.HTTP_201_CREATED)
-        
-    except Exception as e:
-        print(f"Profile submission error: {str(e)}")
-        print(traceback.format_exc())
-        return Response({
-            "status": "error",
-            "message": f"Profile submission failed: {str(e)}"
-        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-
-# ==================== STUDENT PROFILE WITH HOSTEL DETAILS (FIXED) ====================
-
-@api_view(['GET'])
-@permission_classes([AllowAny])
-def get_student_profile(request):
-    """Get complete student profile by admission number with hostel details"""
-    try:
-        admission_no = request.GET.get('admission_no')
-        reg_no = request.GET.get('reg_no')
-        
-        print(f"🔍 Fetching profile - Admission: {admission_no}, Reg: {reg_no}")
-
-        # Find the student
-        student_data = None
-        if admission_no:
-            student_data = Student.objects.filter(admission_no=admission_no).first()
-        elif reg_no:
-            student_data = Student.objects.filter(reg_no=reg_no).first()
-
-        if student_data:
-            # Get room details from booking
-            block_name = "Not Allotted"
-            room_number = "Not Allotted"
-            floor_number = None
-            bed_number = None
-            room_type = None
-            sharing_type = None
-            allotted_date = None
-            booking_found = False
-            
-            try:
-                # Find user by admission number in StudentProfile
-                user_profile = StudentProfile.objects.filter(admission=student_data.admission_no).first()
-                print(f"User profile found: {user_profile}")
-                
-                if user_profile and user_profile.user:
-                    # Get active booking
-                    booking = Booking.objects.filter(
-                        student=user_profile.user, 
-                        status='confirmed'
-                    ).first()
-                    
-                    if booking:
-                        booking_found = True
-                        # Get room details
-                        room = booking.room
-                        block_name = room.floor.block.display_name
-                        room_number = room.room_number
-                        floor_number = room.floor.floor_number
-                        room_type = room.get_room_type_display()
-                        sharing_type = f"{room.capacity} Sharing" if room.capacity else "N/A"
-                        allotted_date = booking.booking_date.strftime('%Y-%m-%d') if booking.booking_date else None
-                        
-                        print(f"✅ Found booking - Block: {block_name}, Room: {room_number}")
-                    else:
-                        print("No active booking found")
-                else:
-                    print("No user profile found")
-                    
-            except Exception as e:
-                print(f"Error getting booking: {e}")
-                import traceback
-                traceback.print_exc()
-            
-            # Create room_details object
-            room_details = {
-                'room_number': room_number,
-                'block_name': block_name,
-                'floor': floor_number,
-                'bed_number': bed_number,
-                'room_type': room_type,
-                'sharing_type': sharing_type,
-                'allotted_date': allotted_date
-            } if booking_found else None
-            
-            # Prepare response
-            response_data = {
-                'full_name': student_data.full_name,
-                'aadhar': student_data.aadhar,
-                'admission_no': student_data.admission_no,
-                'reg_no': student_data.reg_no,
-                'class_yr': student_data.class_yr,
-                'branch': student_data.branch,
-                'roll_no': student_data.roll_no,
-                'dob': student_data.dob.strftime('%Y-%m-%d') if student_data.dob else '',
-                'mobile': student_data.mobile,
-                'email': student_data.email,
-                'address': student_data.address,
-                'caste': student_data.caste,
-                'catering': student_data.catering,
-                'amount': student_data.amount,
-                'father_name': student_data.father_name,
-                'father_phone': student_data.father_phone,
-                'mother_name': student_data.mother_name,
-                'mother_phone': student_data.mother_phone,
-                'guardian_name': student_data.guardian_name,
-                'guardian_phone': student_data.guardian_phone,
-                'student_photo': student_data.student_photo.url if student_data.student_photo else None,
-                'room_details': room_details,  # ✅ Added room_details object
-                'block': block_name,  # Keep for backward compatibility
-                'room_no': room_number,  # Keep for backward compatibility
-                'has_booking': booking_found
-            }
-            
-            print(f"Returning response with room_details: {room_details}")
-            return Response(response_data)
-        
-        # Try StudentProfile as fallback
-        profile = None
-        if admission_no:
-            profile = StudentProfile.objects.filter(admission=admission_no).first()
-        elif reg_no:
-            student_by_reg = Student.objects.filter(reg_no=reg_no).first()
-            if student_by_reg:
-                profile = StudentProfile.objects.filter(admission=student_by_reg.admission_no).first()
-
-        if profile:
-            user = profile.user
-            
-            # Get booking info
-            booking = Booking.objects.filter(student=user, status='confirmed').first()
-            block_name = "Not Allotted"
-            room_number = "Not Allotted"
-            floor_number = None
-            room_type = None
-            sharing_type = None
-            allotted_date = None
-            booking_found = False
-            
-            if booking:
-                booking_found = True
-                room = booking.room
-                block_name = room.floor.block.display_name
-                room_number = room.room_number
-                floor_number = room.floor.floor_number
-                room_type = room.get_room_type_display()
-                sharing_type = f"{room.capacity} Sharing" if room.capacity else "N/A"
-                allotted_date = booking.booking_date.strftime('%Y-%m-%d') if booking.booking_date else None
-                print(f"✅ Found booking via profile - Block: {block_name}, Room: {room_number}")
-            
-            room_details = {
-                'room_number': room_number,
-                'block_name': block_name,
-                'floor': floor_number,
-                'bed_number': None,
-                'room_type': room_type,
-                'sharing_type': sharing_type,
-                'allotted_date': allotted_date
-            } if booking_found else None
-
-            return Response({
-                'full_name': user.get_full_name(),
-                'aadhar': '',
-                'admission_no': profile.admission,
-                'reg_no': profile.admission,
-                'class_yr': f"{profile.year} Year" if profile.year else "",
-                'branch': profile.branch,
-                'roll_no': '',
-                'dob': '',
-                'mobile': profile.phone_number,
-                'email': user.email,
-                'address': profile.address,
-                'caste': '',
-                'catering': '',
-                'amount': '13000',
-                'father_name': '',
-                'father_phone': '',
-                'mother_name': '',
-                'mother_phone': '',
-                'guardian_name': '',
-                'guardian_phone': '',
-                'student_photo': None,
-                'room_details': room_details,  # ✅ Added room_details object
-                'block': block_name,
-                'room_no': room_number,
-                'has_booking': booking_found
-            })
-
-        return Response({"error": "Student not found"}, status=404)
-
-    except Exception as e:
-        print(f"Error in get_student_profile: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return Response({"error": str(e)}, status=500)
-
-# ==================== DEDICATED HOSTEL INFO ENDPOINT (NEW) ====================
-
-@api_view(['GET'])
-@permission_classes([AllowAny])
-def get_student_hostel(request):
-    """Get hostel allocation for a student"""
-    reg_no = request.GET.get('reg_no')
-    admission_no = request.GET.get('admission_no')
-    
-    print(f"🔍 get_student_hostel called - Reg: {reg_no}, Admission: {admission_no}")
-    
-    if not reg_no and not admission_no:
-        return JsonResponse({'error': 'Registration number or admission number required'}, status=400)
-    
-    try:
-        # Find student by reg_no or admission_no
-        student = None
-        if reg_no:
-            student = Student.objects.filter(reg_no=reg_no).first()
-        if not student and admission_no:
-            student = Student.objects.filter(admission_no=admission_no).first()
-        
-        if not student:
-            return JsonResponse({
-                'success': False,
-                'block_name': None,
-                'block': None,
-                'room_number': None,
-                'room_no': None,
-                'message': 'Student not found'
-            }, status=404)
-        
-        # Find user profile
-        user_profile = StudentProfile.objects.filter(admission=student.admission_no).first()
-        
-        if not user_profile or not user_profile.user:
-            return JsonResponse({
-                'success': False,
-                'block_name': None,
-                'block': None,
-                'room_number': None,
-                'room_no': None,
-                'message': 'User profile not found'
-            }, status=404)
-        
-        # Get active booking
-        booking = Booking.objects.filter(
-            student=user_profile.user,
-            status='confirmed'
-        ).first()
-        
-        if booking and booking.room:
-            return JsonResponse({
-                'success': True,
-                'block_name': booking.room.floor.block.display_name,
-                'block': booking.room.floor.block.name,
-                'room_number': booking.room.room_number,
-                'room_no': booking.room.room_number,
-                'booking_id': booking.id,
-                'room_id': booking.room.id
-            })
-        else:
-            return JsonResponse({
-                'success': False,
-                'block_name': None,
-                'block': None,
-                'room_number': None,
-                'room_no': None,
-                'message': 'No active hostel allocation'
-            }, status=404)
-            
-    except Exception as e:
-        print(f"Error in get_student_hostel: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return JsonResponse({'error': str(e)}, status=500)
-
-
 # ==================== MESS PAYMENT VIEWS ====================
 
 @api_view(['POST'])
@@ -1562,7 +1017,6 @@ def create_order(request):
     except Exception as e:
         return Response({"error": str(e)}, status=400)
 
-
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def verify_payment(request):
@@ -1571,6 +1025,7 @@ def verify_payment(request):
     payment_id = data.get('razorpay_payment_id')
     signature = data.get('razorpay_signature')
     roll_no = data.get('roll_no')
+    month = data.get('month')
 
     params_dict = {
         'razorpay_order_id': order_id,
@@ -1581,8 +1036,12 @@ def verify_payment(request):
     try:
         client.utility.verify_payment_signature(params_dict)
         
-        # Find the payment record by roll_no
-        payment_record = MessPayment.objects.filter(roll_no=roll_no).last()
+        # Find the payment record by roll_no and month (most recent one that is not yet successful)
+        payment_record = MessPayment.objects.filter(
+            roll_no=roll_no,
+            month=month,
+            status='Pending'
+        ).order_by('-created_at').first()
         
         if payment_record:
             payment_record.payment_mode = "Online"
@@ -1591,33 +1050,61 @@ def verify_payment(request):
             payment_record.status = "Success"
             payment_record.save()
             
-            # IMPORTANT: Return the receipt_no (database ID), not the payment_id
             return Response({
                 "status": "success",
                 "message": "Payment verified",
-                "receipt_id": str(payment_record.receipt_no)  # Fix: Return receipt_no
+                "receipt_id": str(payment_record.receipt_no),
+                "payment_time": payment_record.created_at.strftime('%Y-%m-%d %H:%M:%S') if payment_record.created_at else None,
+                "days": payment_record.days_count
             })
         else:
-            # If no payment record found, create one
+            # If no pending payment record found, check if there's already a successful one for this month
+            existing = MessPayment.objects.filter(
+                roll_no=roll_no,
+                month=month,
+                status='Success'
+            ).first()
+            
+            if existing:
+                return Response({
+                    "status": "success",
+                    "message": "Payment already verified",
+                    "receipt_id": str(existing.receipt_no),
+                    "payment_time": existing.created_at.strftime('%Y-%m-%d %H:%M:%S') if existing.created_at else None,
+                    "days": existing.days_count
+                })
+            
+            # Fallback: create new record (shouldn't normally reach here)
+            billing_rate = None
+            days_count = 0
+            if month:
+                billing_rate = BillingRate.objects.filter(month=month).first()
+                if billing_rate:
+                    days_count = billing_rate.days
+                    
             payment_record = MessPayment.objects.create(
                 student_name=data.get('student_name', 'Unknown'),
                 roll_no=roll_no,
                 room_no=data.get('room_no', ''),
                 class_yr=data.get('class_yr', ''),
                 date=datetime.now().date(),
-                month=datetime.now().strftime("%B %Y"),
-                amount=3000,
+                month=month or datetime.now().strftime("%B %Y"),
+                amount=int(data.get('amount', 3000)),
                 payment_mode="Online",
                 purpose="Mess Fee",
                 razorpay_order_id=order_id,
                 razorpay_payment_id=payment_id,
-                status="Success"
+                status="Success",
+                billing_rate=billing_rate,
+                days_count=days_count
             )
             
             return Response({
                 "status": "success",
                 "message": "Payment verified and recorded",
-                "receipt_id": str(payment_record.receipt_no)  # Fix: Return receipt_no
+                "receipt_id": str(payment_record.receipt_no),
+                "payment_time": payment_record.created_at.strftime('%Y-%m-%d %H:%M:%S') if payment_record.created_at else None,
+                "days": days_count
             })
 
     except razorpay.errors.SignatureVerificationError:
@@ -1632,29 +1119,81 @@ def mess_payment(request):
     data = request.data
     try:
         amount_value = int(data.get("amount", 0)) 
+        month_value = data.get("month")
+        roll_no_value = data.get("roll_no")
+        
+        billing_rate = None
+        days_count = 0
+        if month_value:
+            billing_rate = BillingRate.objects.filter(month=month_value).first()
+            if billing_rate:
+                days_count = billing_rate.days
         
         payment = MessPayment.objects.create(
             student_name=data.get("student_name"),
-            roll_no=data.get("roll_no"),
+            roll_no=roll_no_value,
             room_no=data.get("room_no"),
             class_yr=data.get("class_yr"),
             date=data.get("date"),
-            month=data.get("month"),
+            month=month_value,
             amount=amount_value,
             payment_mode=data.get("payment_mode"),
-            purpose=data.get("purpose")
+            purpose=data.get("purpose"),
+            billing_rate=billing_rate,
+            days_count=days_count
         )
-        # Return receipt_no (database ID) for later reference
         return Response({
             "message": "Payment data stored", 
-            "receipt_id": payment.receipt_no,  # Fix: Return receipt_no
-            "id": payment.receipt_no
+            "receipt_id": payment.receipt_no,
+            "id": payment.receipt_no,
+            "payment_time": payment.created_at.strftime('%Y-%m-%d %H:%M:%S') if payment.created_at else None,
+            "payment_status": payment.status
         })
     except ValueError:
         return Response({"error": "Invalid amount format"}, status=400)
     except Exception as e:
         print(f"Database Error: {e}")
         return Response({"error": "Internal Server Error"}, status=500)
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def check_month_paid(request):
+    """Check if a student has already paid for a specific month"""
+    roll_no = request.GET.get('roll_no')
+    month = request.GET.get('month')
+    
+    if not roll_no or not month:
+        return Response({
+            "paid": False,
+            "error": "roll_no and month are required"
+        }, status=400)
+    
+    try:
+        existing_payment = MessPayment.objects.filter(
+            roll_no=roll_no,
+            month=month,
+            status='Success'
+        ).first()
+        
+        if existing_payment:
+            return Response({
+                "paid": True,
+                "receipt_no": existing_payment.receipt_no,
+                "payment_time": existing_payment.created_at.strftime('%Y-%m-%d %H:%M:%S') if existing_payment.created_at else None,
+                "amount": existing_payment.amount,
+                "days": existing_payment.days_count
+            })
+        
+        return Response({
+            "paid": False
+        })
+    except Exception as e:
+        print(f"Error checking month payment: {e}")
+        return Response({
+            "paid": False,
+            "error": str(e)
+        }, status=500)
 
 # ==================== CERTIFICATE VIEW ====================
 
@@ -1672,8 +1211,6 @@ def save_certificate_record(request):
         return Response({"status": "success", "message": "Record stored."})
     except Exception as e:
         return Response({"status": "error", "message": str(e)}, status=400)
-
-
 
 # ==================== NO DUES / MONTHS UPDATE ENDPOINT ====================
 
@@ -1697,13 +1234,13 @@ def update_months(request):
                 'error': 'Months value is required'
             }, status=400)
         
-        # Get student profile
+        # Get student
         try:
-            student_profile = StudentProfile.objects.get(user=request.user)
-        except StudentProfile.DoesNotExist:
+            student = Student.objects.get(admission_no=request.user.username)
+        except Student.DoesNotExist:
             return Response({
                 'success': False,
-                'error': 'Student profile not found'
+                'error': 'Student data not found'
             }, status=404)
         
         # Store months in session
@@ -1714,7 +1251,7 @@ def update_months(request):
             'message': f'Successfully updated to {months} months',
             'data': {
                 'months': months,
-                'student': student_profile.admission,
+                'student': student.admission_no,
                 'student_name': request.user.get_full_name()
             }
         }, status=200)
@@ -1726,9 +1263,6 @@ def update_months(request):
             'error': str(e)
         }, status=500)
     
-
-# Add this near your other certificate endpoints (around line 900)
-
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def check_no_dues(request):
@@ -1754,10 +1288,7 @@ def check_no_dues(request):
                 'error': 'Student not found'
             }, status=404)
         
-        # Calculate dues (example logic - adjust based on your models)
-        # You need to implement based on your actual payment models
-        
-        # Example: Check mess payments
+        # Calculate dues
         mess_payments = MessPayment.objects.filter(
             roll_no=reg_no,
             status='Success'
@@ -1771,10 +1302,10 @@ def check_no_dues(request):
         
         # Check if student has active booking payment
         try:
-            user_profile = StudentProfile.objects.filter(admission=student.admission_no).first()
-            if user_profile and user_profile.user:
+            user = User.objects.filter(username=student.admission_no).first()
+            if user:
                 booking = Booking.objects.filter(
-                    student=user_profile.user,
+                    student=user,
                     status='confirmed'
                 ).first()
                 
@@ -1820,161 +1351,208 @@ def get_all_students(request):
     serializer = StudentSerializer(students, many=True)
     return Response(serializer.data)
 
-
 # ==================== OTP & PASSWORD RESET VIEWS ====================
 
+
+
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import AllowAny
+from django.contrib.auth.hashers import make_password
+from django.conf import settings
+from django.core.mail import send_mail
+import random
+
+from .models import StudentRegistration, AdminWardenUser, PasswordResetOTP
+
+
+# =========================
+# STEP 1: REQUEST OTP
+# =========================
 class RequestOTP(APIView):
     permission_classes = [AllowAny]
-    
+
     def post(self, request):
-        try:
-            email = request.data.get('email')
-            print(f"RequestOTP called with email: {email}")
+        email = request.data.get("email")
+
+        if not email:
+            return Response({"error": "Email is required"}, status=400)
+
+        student = StudentRegistration.objects.filter(email=email).first()
+        admin = AdminWardenUser.objects.filter(email=email).first()
+
+        if not student and not admin:
+            return Response({"error": "Email not registered"}, status=400)
+
+        otp = str(random.randint(100000, 999999))
+
+        # ===== STUDENT =====
+        if student:
+            PasswordResetOTP.objects.filter(user=student).delete()
             
-            if not email:
-                return Response(
-                    {"error": "Email is required"},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
-            user = StudentRegistration.objects.filter(email=email).first()
-            
-            if not user:
-                return Response(
-                    {"error": "User not found with this email"},
-                    status=status.HTTP_404_NOT_FOUND
-                )
-
-            PasswordResetOTP.objects.filter(user=user).delete()
-
-            otp = str(random.randint(100000, 999999))
-            print(f"Generated OTP for {email}: {otp}")
-
-            PasswordResetOTP.objects.create(user=user, otp=otp)
-
-            try:
-                subject = 'Password Reset OTP - Andhra University Hostel'
-                message = f"""
-Dear {user.full_name},
-
-Your OTP for password reset is: {otp}
-
-This OTP is valid for 10 minutes.
-
-If you did not request this password reset, please ignore this email.
-
-Best regards,
-Andhra University Hostel Management
-                """
-                
-                send_mail(
-                    subject,
-                    message,
-                    'andhrahostels@gmail.com',
-                    [email],
-                    fail_silently=False,
-                    auth_user='andhrahostels@gmail.com',
-                    auth_password='hqpbspdfmyatjjlz',
-                    connection=None,
-                )
-                print(f"OTP email sent successfully to {email}")
-            except Exception as email_error:
-                print(f"Email sending failed: {email_error}")
-
-            return Response(
-                {
-                    "status": "success",
-                    "message": "OTP sent successfully to your email",
-                    "email": email
-                },
-                status=status.HTTP_200_OK
+            new_record = PasswordResetOTP.objects.create(
+                user=student,
+                otp=otp
             )
+            print(f"OTP created for student {email}: {otp}")
+            print(f"Record ID: {new_record.id}, Reset Token: {new_record.reset_token}")
+
+        # ===== ADMIN =====
+        if admin:
+            PasswordResetOTP.objects.filter(email=email, user__isnull=True).delete()
             
-        except Exception as e:
-            print(f"Error in RequestOTP: {str(e)}")
-            return Response(
-                {"error": f"Failed to send OTP: {str(e)}"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            new_record = PasswordResetOTP.objects.create(
+                user=None,
+                email=email,
+                otp=otp
             )
+            print(f"OTP created for admin {email}: {otp}")
+            print(f"Record ID: {new_record.id}, Reset Token: {new_record.reset_token}")
+        
+        # ===== SEND EMAIL =====
+        send_mail(
+            "Password Reset OTP",
+            f"Your OTP is {otp}",
+            settings.EMAIL_HOST_USER,
+            [email],
+            fail_silently=False
+        )
+
+        return Response({
+            "status": "success",
+            "message": "OTP sent successfully"
+        })
 
 
+# =========================
+# STEP 2: VERIFY OTP
+# =========================
 class VerifyOTP(APIView):
     permission_classes = [AllowAny]
-    
+
     def post(self, request):
-        try:
-            email = request.data.get('email')
-            otp = request.data.get('otp')
-            
-            if not email or not otp:
-                return Response(
-                    {"error": "Email and OTP are required"},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+        email = request.data.get("email")
+        otp = str(request.data.get("otp")).strip()
 
-            record = PasswordResetOTP.objects.filter(
-                user__email=email,
-                otp=otp
-            ).last()
+        print("\n====== VERIFY DEBUG ======")
+        print("EMAIL:", email)
+        print("ENTERED OTP:", otp)
 
-            if record and record.is_valid():
+        student = StudentRegistration.objects.filter(email=email).first()
+        admin = AdminWardenUser.objects.filter(email=email).first()
+        
+        print("STUDENT FOUND:", student)
+        print("ADMIN FOUND:", admin)
+
+        # STUDENT VERIFICATION (OTP stored in database)
+        if student:
+            all_otps = PasswordResetOTP.objects.filter(user=student)
+            print("ALL OTP RECORDS:", list(all_otps.values()))
+
+            record = all_otps.order_by('-created_at').first()
+
+            if record:
+                print("LATEST DB OTP:", record.otp)
+                print("ENTERED OTP:", otp)
+                print("OTP MATCH:", record.otp == otp)
+                print("IS VALID:", record.is_valid())
+                print("CREATED AT:", record.created_at)
+            else:
+                print("NO OTP RECORD FOUND")
+
+            if record and record.otp == otp:
+                if not record.is_valid():
+                    print("OTP EXPIRED")
+                    return Response({"error": "OTP has expired. Please request a new one."}, status=400)
+                    
+                print("OTP MATCH SUCCESS")
                 return Response({
                     "status": "success",
-                    "reset_token": str(record.reset_token)
-                }, status=status.HTTP_200_OK)
+                    "reset_token": str(record.reset_token),
+                    "user_type": "student"
+                })
+            else:
+                print("OTP MISMATCH - STUDENT OTP CHECK FAILED")
+        else:
+            print("NO STUDENT FOUND FOR THIS EMAIL")
 
-            return Response(
-                {"error": "Invalid or expired OTP"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-            
-        except Exception as e:
-            print(f"Error in VerifyOTP: {str(e)}")
-            return Response(
-                {"error": f"Verification failed: {str(e)}"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+        # ADMIN VERIFICATION (OTP stored in database)
+        if admin:
+            all_otps = PasswordResetOTP.objects.filter(email=email, user__isnull=True)
+            print("ADMIN OTP RECORDS:", list(all_otps.values()))
 
+            record = all_otps.order_by('-created_at').first()
 
+            if record:
+                print("LATEST DB OTP:", record.otp)
+                print("ENTERED OTP:", otp)
+                print("OTP MATCH:", record.otp == otp)
+                print("IS VALID:", record.is_valid())
+                print("CREATED AT:", record.created_at)
+
+            if not record:
+                print("NO ADMIN OTP RECORD FOUND")
+                return Response({"error": "No OTP found. Please request a new one."}, status=400)
+
+            if record.otp != otp:
+                print("OTP MISMATCH")
+                return Response({"error": "Invalid OTP. Please check and try again."}, status=400)
+
+            if not record.is_valid():
+                print("OTP EXPIRED")
+                return Response({"error": "OTP has expired. Please request a new one."}, status=400)
+
+            print("ADMIN OTP SUCCESS")
+            return Response({
+                "status": "success",
+                "reset_token": str(record.reset_token),
+                "user_type": "admin"
+            })
+
+        print("OTP FAILED - NO USER FOUND")
+        return Response({"error": "Email not registered. Please check your email address."}, status=400)
+# =========================
+# STEP 3: RESET PASSWORD
+# =========================
 class ResetPassword(APIView):
     permission_classes = [AllowAny]
-    
+
     def post(self, request):
-        try:
-            token = request.data.get('reset_token')
-            new_password = request.data.get('new_password')
-            
-            if not token or not new_password:
-                return Response(
-                    {"error": "Reset token and new password are required"},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+        token = request.data.get("reset_token")
+        new_password = request.data.get("new_password")
 
-            record = PasswordResetOTP.objects.filter(reset_token=token).last()
+        if not token or not new_password:
+            return Response({"error": "Token and new password required"}, status=400)
 
-            if record and record.is_valid():
+        record = PasswordResetOTP.objects.filter(reset_token=token).last()
+
+        if record and record.is_valid():
+            if record.user:
                 user = record.user
                 user.password = make_password(new_password)
                 user.save()
-                record.delete()
+                
+                PasswordResetOTP.objects.filter(user=user).delete()
 
                 return Response({
                     "status": "success",
-                    "message": "Password updated successfully"
-                }, status=status.HTTP_200_OK)
+                    "message": "Password reset successful"
+                })
+            elif record.email:
+                admin = AdminWardenUser.objects.filter(email=record.email).first()
+                
+                if admin:
+                    admin.password = make_password(new_password)
+                    admin.save()
+                    
+                    PasswordResetOTP.objects.filter(email=record.email, user__isnull=True).delete()
 
-            return Response(
-                {"error": "Invalid or expired reset token"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-            
-        except Exception as e:
-            print(f"Error in ResetPassword: {str(e)}")
-            return Response(
-                {"error": f"Password reset failed: {str(e)}"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+                    return Response({
+                        "status": "success",
+                        "message": "Password reset successful"
+                    })
 
+        return Response({"error": "Invalid or expired token"}, status=400)
 
 # ==================== TEST ENDPOINT ====================
 
@@ -1987,65 +1565,6 @@ def test_endpoint(request):
         "authenticated": request.user.is_authenticated,
         "user": str(request.user) if request.user.is_authenticated else "Anonymous"
     })
-
-
-@api_view(['POST'])
-@permission_classes([AllowAny])
-def forgot_password(request):
-    """Legacy forgot password - use RequestOTP instead"""
-    try:
-        email = request.data.get("email")
-        
-        if not email:
-            return Response({
-                "status": "error",
-                "message": "Email is required"
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
-        # Try to find in StudentRegistration
-        try:
-            student = StudentRegistration.objects.get(email=email)
-            user_type = "student"
-        except StudentRegistration.DoesNotExist:
-            # Try to find in Django User
-            try:
-                user = User.objects.get(email=email)
-                student = None
-                user_type = "user"
-            except User.DoesNotExist:
-                return Response({
-                    "status": "error",
-                    "message": "Email not registered"
-                }, status=status.HTTP_404_NOT_FOUND)
-        
-        # Generate OTP
-        otp = random.randint(100000, 999999)
-        
-        # Store in session
-        request.session["reset_email"] = email
-        request.session["otp"] = str(otp)
-        
-        # Send email
-        send_mail(
-            "Password Reset OTP - Andhra University Hostel",
-            f"Your OTP for password reset is: {otp}\n\nThis OTP is valid for 10 minutes.",
-            settings.EMAIL_HOST_USER,
-            [email],
-            fail_silently=False,
-        )
-        
-        return Response({
-            "status": "success",
-            "message": "OTP sent to email"
-        })
-        
-    except Exception as e:
-        print(f"Forgot password error: {str(e)}")
-        return Response({
-            "status": "error",
-            "message": str(e)
-        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
@@ -2065,7 +1584,6 @@ def get_room_availability(request, room_id):
     except Room.DoesNotExist:
         return Response({'error': 'Room not found'}, status=404)
     
-
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def download_mess_receipt(request, receipt_id):
@@ -2104,7 +1622,6 @@ def download_mess_receipt(request, receipt_id):
         from reportlab.pdfgen import canvas
         from reportlab.lib.pagesizes import A4
         from reportlab.lib.units import inch
-        from reportlab.lib.utils import simpleSplit
         
         # Create HTTP response
         response = HttpResponse(content_type='application/pdf')
@@ -2206,8 +1723,6 @@ def download_mess_receipt(request, receipt_id):
             status=500
         )
 
-
-
 def get_amount_in_words(amount):
     """Convert amount to words (optional helper function)"""
     if amount <= 0:
@@ -2239,9 +1754,6 @@ def get_amount_in_words(amount):
         return (convert_hundreds(thousands) + " Thousand" + (" " + convert_hundreds(remainder) if remainder > 0 else ""))
     else:
         return convert_hundreds(amount)
-    
-
-
 
 @csrf_exempt 
 def upload_excel(request):
@@ -2505,21 +2017,20 @@ def upload_billing_excel(request):
         return JsonResponse({'error': str(e)}, status=500)
     
 
-
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def get_student_billing(request):
     """Get billing details for a student"""
     try:
-        admission_no = request.GET.get('admission_no')
-        reg_no = request.GET.get('reg_no')
+        admission_no = request.GET.get('admission_no', '').strip()
+        reg_no = request.GET.get('reg_no', '').strip()
         
         # Find student
         student = None
         if admission_no:
-            student = Student.objects.filter(admission_no=admission_no).first()
+            student = Student.objects.filter(admission_no__iexact=admission_no).first()
         elif reg_no:
-            student = Student.objects.filter(reg_no=reg_no).first()
+            student = Student.objects.filter(reg_no__iexact=reg_no).first()
         
         if not student:
             return Response({'error': 'Student not found'}, status=404)
@@ -2635,11 +2146,20 @@ def check_month_paid(request):
 @permission_classes([AllowAny])
 def upload_meta_hostel_excel(request):
     """
-    Upload META Hostel Excel file with student data and monthly payments
-    Handles the exact format of your Excel file
+    Upload META Hostel Excel file with student data and monthly expenses
+    Excel format:
+    - Row 1: S.no, Name of the Student, Roll no, Class, Room no, etc.
+    - Row 2: Month headers (Jul-24, Aug-24, etc.)
+    - Row 3: Column headers (DAYS, ELECTRIC CHARGE, MESS CHARGE, etc.)
+    - Row 4+: Data rows
     """
     if request.method != 'POST':
         return JsonResponse({'error': 'Method not allowed'}, status=405)
+    
+    def safe_str(val):
+        if pd.notna(val):
+            return str(val).strip()
+        return ''
     
     try:
         if 'file' not in request.FILES:
@@ -2650,39 +2170,99 @@ def upload_meta_hostel_excel(request):
         if not excel_file.name.endswith(('.xlsx', '.xls')):
             return JsonResponse({'error': 'Invalid file format. Please upload .xlsx or .xls file'}, status=400)
         
-        # Read Excel file
         df = pd.read_excel(excel_file, header=None)
         
-        # Find the header row (row 3 in your Excel - index 2)
+        # Find header row containing 'S.no' and 'Name of the Student'
         header_row = None
-        for idx in range(10):
+        for idx in range(min(10, len(df))):
             row = df.iloc[idx]
-            if row.astype(str).str.contains('S.no').any() and row.astype(str).str.contains('Name of the Student').any():
+            row_str = row.astype(str)
+            if row_str.str.contains('S.no', case=False, na=False).any() and row_str.str.contains('Name', case=False, na=False).any():
                 header_row = idx
                 break
         
         if header_row is None:
-            return JsonResponse({'error': 'Could not find header row in Excel'}, status=400)
+            return JsonResponse({'error': 'Could not find header row. Make sure Excel has "S.no" and "Name of the Student" columns'}, status=400)
         
-        print(f"Found header at row: {header_row}")
+        # Parse headers
+        headers = df.iloc[header_row].astype(str).tolist()
+        print(f"Header row: {header_row}")
+        print(f"Total columns: {len(headers)}")
         
-        # Get data rows
+        # Find column indices
+        col_map = {}
+        for i, h in enumerate(headers):
+            h_lower = str(h).lower().strip()
+            if 's.no' in h_lower or 'sno' in h_lower:
+                col_map['sno'] = i
+            elif 'name' in h_lower and ('student' in h_lower or 'name of' in h_lower):
+                col_map['student_name'] = i
+            elif 'roll' in h_lower or 'reg' in h_lower:
+                col_map['roll_no'] = i
+            elif 'class' in h_lower or 'year' in h_lower:
+                col_map['class'] = i
+            elif 'room' in h_lower:
+                col_map['room_no'] = i
+            elif 'hostel' in h_lower or 'block' in h_lower:
+                col_map['hostel'] = i
+            elif 'phone' in h_lower or 'mobile' in h_lower:
+                col_map['phone'] = i
+            elif 'dob' in h_lower:
+                col_map['dob'] = i
+            elif 'aadhar' in h_lower:
+                col_map['aadhar'] = i
+            elif 'scholarship' in h_lower:
+                col_map['scholarship'] = i
+            elif 'caste' in h_lower:
+                col_map['caste'] = i
+            elif 'parent' in h_lower and 'name' in h_lower:
+                col_map['parent_name'] = i
+            elif 'parent' in h_lower and 'phone' in h_lower:
+                col_map['parent_phone'] = i
+            elif 'address' in h_lower:
+                col_map['address'] = i
+            elif 'caution' in h_lower:
+                col_map['caution'] = i
+            elif 'jul' in h_lower or 'july' in h_lower:
+                if 'month_start' not in col_map:
+                    col_map['month_start'] = i
+            elif 'aug' in h_lower or 'august' in h_lower:
+                if 'month_start' not in col_map:
+                    col_map['month_start'] = i
+        
+        print(f"Column map: {col_map}")
+        
+        # Find all month columns dynamically
+        month_headers = []
+        month_patterns = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
+        
+        for i, h in enumerate(headers):
+            h_lower = str(h).lower().strip()
+            for pattern in month_patterns:
+                if pattern in h_lower and ('24' in h or '25' in h or '26' in h):
+                    month_name = h.strip()
+                    if month_name not in [m['name'] for m in month_headers]:
+                        month_headers.append({
+                            'name': month_name,
+                            'col_index': i
+                        })
+                    break
+        
+        print(f"Found months: {month_headers}")
+        
+        # Get data rows (skip header rows)
         data_df = df.iloc[header_row + 1:].reset_index(drop=True)
         
-        # Define month columns based on your Excel structure
-        month_columns = [
-            {'name': 'July 2024', 'days_col': 4, 'mess_col': 6, 'date_col': 10},
-            {'name': 'August 2024', 'days_col': 12, 'mess_col': 14, 'date_col': 18},
-            {'name': 'September 2024', 'days_col': 21, 'mess_col': 23, 'date_col': 27},
-            {'name': 'October 2024', 'days_col': 30, 'mess_col': 32, 'date_col': 36},
-            {'name': 'November 2024', 'days_col': 39, 'mess_col': 41, 'date_col': 45},
-            {'name': 'December 2024', 'days_col': 48, 'mess_col': 50, 'date_col': 54},
-            {'name': 'January 2025', 'days_col': 57, 'mess_col': 59, 'date_col': 63},
-            {'name': 'February 2025', 'days_col': 66, 'mess_col': 68, 'date_col': 72},
-            {'name': 'March 2025', 'days_col': 75, 'mess_col': 77, 'date_col': 81},
-            {'name': 'April 2025', 'days_col': 84, 'mess_col': 86, 'date_col': 90},
-            {'name': 'May 2025', 'days_col': 93, 'mess_col': 95, 'date_col': 99},
-        ]
+        # Find month data columns for each month
+        for month in month_headers:
+            month_start = month['col_index']
+            month['days'] = month_start
+            month['electric'] = month_start + 1
+            month['mess'] = month_start + 2
+            month['service'] = month_start + 3
+            month['net_demand'] = month_start + 4
+            month['collection'] = month_start + 5
+            month['date'] = month_start + 6
         
         students_created = 0
         students_updated = 0
@@ -2691,116 +2271,233 @@ def upload_meta_hostel_excel(request):
         
         for idx, row in data_df.iterrows():
             try:
-                # Extract basic student info
-                s_no = row.iloc[0] if len(row) > 0 and pd.notna(row.iloc[0]) else None
-                student_name = str(row.iloc[1]).strip() if len(row) > 1 and pd.notna(row.iloc[1]) else ''
-                registration_no = str(row.iloc[2]).strip() if len(row) > 2 and pd.notna(row.iloc[2]) else ''
+                # Get registration/admission number FIRST
+                roll_col = col_map.get('roll_no', 2)
+                reg_no = safe_str(row.iloc[roll_col]) if len(row) > roll_col else ''
                 
-                # Skip empty rows or total rows
-                if not student_name or student_name == 'nan' or 'Total' in student_name:
+                if reg_no == 'nan' or not reg_no:
+                    # Try next few columns for roll no
+                    for rc in range(roll_col, min(roll_col + 5, len(row))):
+                        val = safe_str(row.iloc[rc])
+                        if val and not val.isdigit() and len(val) > 5:
+                            reg_no = val
+                            roll_col = rc
+                            break
+                
+                if not reg_no or reg_no.isdigit():
                     continue
                 
-                # Generate admission number
-                admission_no = registration_no if registration_no and registration_no != 'nan' else f"META{int(s_no) if s_no else idx:04d}"
-                reg_no = registration_no if registration_no and registration_no != 'nan' else admission_no
+                admission_no = reg_no
+                name_col = col_map.get('student_name', 1)
+                student_name = ''
+                
+                # Try columns BEFORE and AFTER roll column for name
+                search_cols = []
+                if roll_col > 0:
+                    search_cols.extend(range(0, roll_col))
+                search_cols = list(range(roll_col + 1, min(roll_col + 5, len(row))))
+                
+                for check_col in search_cols:
+                    if check_col >= len(row):
+                        continue
+                    val = safe_str(row.iloc[check_col])
+                    # Must have letters and be longer than 3 chars
+                    if val and len(val) > 3 and any(c.isalpha() for c in val):
+                        if 'nan' not in val.lower() and 'total' not in val.lower() and 'days' not in val.lower():
+                            student_name = val
+                            break
+                
+                # If still no name, skip row
+                if not student_name or len(student_name) < 4:
+                    continue
+                
+                print(f"DEBUG: reg_no={reg_no}, student_name='{student_name}'")
+                
+                print(f"DEBUG: Found name '{student_name}' for reg_no {reg_no}")
+                
+                # Get registration/admission number
+                roll_col = col_map.get('roll_no', 2)
+                reg_no = safe_str(row.iloc[roll_col]) if len(row) > roll_col else ''
+                
+                if reg_no == 'nan' or not reg_no:
+                    reg_no = f"META{idx:04d}"
+                
+                admission_no = reg_no
+                
+                # Detect block from file name or from Excel column
+                block_name = "Orange Hostel"
+                if "META" in str(excel_file.name).upper():
+                    block_name = "Meta H Hostel"
+                elif "ORANGE" in str(excel_file.name).upper():
+                    block_name = "Orange Hostel"
+                elif "ALUMINI" in str(excel_file.name).upper():
+                    block_name = "Alumini Hostel"
+                
+                # Override block from Excel if hostel column exists
+                hostel_col = col_map.get('hostel')
+                if hostel_col is not None and len(row) > hostel_col:
+                    excel_hostel = safe_str(row.iloc[hostel_col])
+                    if excel_hostel and excel_hostel != 'nan':
+                        block_name = excel_hostel
+                
+                # Get other student details
+                class_col = col_map.get('class', 3)
+                class_yr = str(row.iloc[class_col]) if len(row) > class_col and pd.notna(row.iloc[class_col]) else '2nd Year'
+                
+                room_col = col_map.get('room_no', 4)
+                room_no = safe_str(row.iloc[room_col])
+                
+                phone_col = col_map.get('phone', 5)
+                phone = str(row.iloc[phone_col]) if len(row) > phone_col and pd.notna(row.iloc[phone_col]) else ''
+                
+                aadhar_col = col_map.get('aadhar', 7)
+                aadhar = str(row.iloc[aadhar_col]) if len(row) > aadhar_col and pd.notna(row.iloc[aadhar_col]) else ''
+                
+                parent_name_col = col_map.get('parent_name', 10)
+                parent_name = str(row.iloc[parent_name_col]) if len(row) > parent_name_col and pd.notna(row.iloc[parent_name_col]) else ''
+                parent_phone = str(row.iloc[parent_phone_col]) if len(row) > parent_phone_col and pd.notna(row.iloc[parent_phone_col]) else ''
+                address = str(row.iloc[address_col]) if len(row) > address_col and pd.notna(row.iloc[address_col]) else ''
+                caste = str(row.iloc[caste_col]) if len(row) > caste_col and pd.notna(row.iloc[caste_col]) else ''
+                
+                print(f"Processing: {student_name} ({admission_no})")
                 
                 # Check if student exists
                 student = Student.objects.filter(admission_no=admission_no).first()
                 
                 if student:
                     students_updated += 1
-                    print(f"Updating existing student: {student_name}")
+                    # Update student details
+                    student.full_name = student_name
+                    student.class_yr = class_yr
+                    student.room_no = room_no
+                    student.block = block_name
+                    student.mobile = phone
+                    student.aadhar = aadhar
+                    student.father_name = parent_name
+                    student.father_phone = parent_phone
+                    student.address = address
+                    student.caste = caste
+                    student.reg_no = reg_no  # Ensure reg_no is always updated
+                    student.save()
+                    print(f"  Updated existing student: {student_name}")
                 else:
-                    # Determine class year
-                    class_yr = "2nd Year"
-                    if registration_no and registration_no != 'nan':
-                        if registration_no.startswith('323'):
-                            class_yr = "2nd Year"
-                        elif registration_no.startswith('322'):
-                            class_yr = "3rd Year"
-                    
                     # Create new student
                     student = Student.objects.create(
                         full_name=student_name,
                         admission_no=admission_no,
-                        reg_no=reg_no,
+                        reg_no=reg_no or admission_no,  # Ensure reg_no is always set
                         class_yr=class_yr,
                         branch="CSE",
-                        mobile="",
-                        email=f"{reg_no}@au.edu.in" if reg_no != 'nan' else f"{admission_no}@au.edu.in",
-                        password=make_password(reg_no if reg_no != 'nan' else admission_no),
+                        mobile=phone,
+                        email=f"{reg_no}@student.au.edu.in" if reg_no else f"{admission_no}@student.au.edu.in",
+                        aadhar=aadhar,
+                        father_name=parent_name,
+                        father_phone=parent_phone,
+                        address=address,
+                        caste=caste,
+                        room_no=room_no,
+                        block=block_name,
                         amount="13250"
                     )
                     students_created += 1
-                    print(f"Created new student: {student_name} ({admission_no})")
+                    print(f"  Created new student: {student_name} ({admission_no})")
                 
-                # Process monthly payments
-                for month_info in month_columns:
+                # Process monthly payments for each month
+                for month in month_headers:
                     try:
-                        mess_charge = row.iloc[month_info['mess_col']] if len(row) > month_info['mess_col'] else None
-                        days = row.iloc[month_info['days_col']] if len(row) > month_info['days_col'] else None
-                        payment_date = row.iloc[month_info['date_col']] if len(row) > month_info['date_col'] else None
-                        
-                        if mess_charge and pd.notna(mess_charge) and isinstance(mess_charge, (int, float)) and mess_charge > 0:
+                        mess_col = month.get('mess')
+                        if mess_col is None or len(row) <= mess_col:
+                            continue
                             
-                            existing_payment = MessPayment.objects.filter(
+                        mess_charge = row.iloc[mess_col]
+                        
+                        # Check if there's valid payment data
+                        if pd.notna(mess_charge) and mess_charge != '':
+                            try:
+                                mess_charge = float(mess_charge)
+                            except:
+                                mess_charge = 0
+                        else:
+                            mess_charge = 0
+                        
+                        if mess_charge > 0:
+                            days_col = month.get('days')
+                            days = int(float(row.iloc[days_col]) if days_col and len(row) > days_col and pd.notna(row.iloc[days_col]) else 30)
+                            
+                            electric_col = month.get('electric')
+                            electric = float(row.iloc[electric_col]) if electric_col and len(row) > electric_col and pd.notna(row.iloc[electric_col]) else 0
+                            
+                            service_col = month.get('service')
+                            service = float(row.iloc[service_col]) if service_col and len(row) > service_col and pd.notna(row.iloc[service_col]) else 0
+                            
+                            net_col = month.get('net_demand')
+                            net = float(row.iloc[net_col]) if net_col and len(row) > net_col and pd.notna(row.iloc[net_col]) else mess_charge
+                            
+                            collection_col = month.get('collection')
+                            collection = float(row.iloc[collection_col]) if collection_col and len(row) > collection_col and pd.notna(row.iloc[collection_col]) else mess_charge
+                            
+                            date_col = month.get('date')
+                            payment_date = None
+                            if date_col and len(row) > date_col and pd.notna(row.iloc[date_col]):
+                                try:
+                                    if isinstance(row.iloc[date_col], str):
+                                        payment_date = datetime.strptime(row.iloc[date_col].split()[0], '%Y-%m-%d').date()
+                                    else:
+                                        payment_date = row.iloc[date_col].date() if hasattr(row.iloc[date_col], 'date') else datetime.now().date()
+                                except:
+                                    payment_date = datetime.now().date()
+                            else:
+                                payment_date = datetime.now().date()
+                            
+                            # Check if payment already exists
+                            existing = MessPayment.objects.filter(
                                 roll_no=reg_no,
-                                month=month_info['name'],
+                                month=month['name'],
                                 status='Success'
                             ).first()
                             
-                            if not existing_payment:
-                                payment_date_obj = None
-                                if payment_date and pd.notna(payment_date):
-                                    try:
-                                        if isinstance(payment_date, str):
-                                            payment_date_obj = datetime.strptime(payment_date.split()[0], '%Y-%m-%d').date()
-                                        else:
-                                            payment_date_obj = payment_date.date() if hasattr(payment_date, 'date') else payment_date
-                                    except:
-                                        payment_date_obj = datetime.now().date()
-                                else:
-                                    payment_date_obj = datetime.now().date()
-                                
+                            if not existing:
+                                # Create billing rate
                                 billing_rate, _ = BillingRate.objects.get_or_create(
-                                    month=month_info['name'],
+                                    month=month['name'],
                                     defaults={
-                                        'days': int(days) if days and pd.notna(days) else 30,
-                                        'electric_charge': 0,
-                                        'mess_charge': float(mess_charge),
-                                        'service_charge': 0,
-                                        'net_demand': float(mess_charge),
-                                        'collection': float(mess_charge),
-                                        'date': payment_date_obj
+                                        'days': days,
+                                        'electric_charge': electric,
+                                        'mess_charge': mess_charge,
+                                        'service_charge': service,
+                                        'net_demand': net,
+                                        'collection': collection,
+                                        'date': payment_date
                                     }
                                 )
                                 
+                                # Create mess payment
                                 MessPayment.objects.create(
                                     student_name=student_name,
                                     roll_no=reg_no,
-                                    room_no=student.room_no or "Not Allotted",
-                                    class_yr=student.class_yr or "2nd Year",
-                                    date=payment_date_obj,
-                                    month=month_info['name'],
-                                    amount=int(float(mess_charge)),
-                                    payment_mode="Online",
+                                    room_no=room_no or "Not Allotted",
+                                    class_yr=class_yr,
+                                    date=payment_date,
+                                    month=month['name'],
+                                    amount=int(mess_charge),
+                                    payment_mode="Excel Upload",
                                     purpose="Mess Fee",
                                     status="Success",
                                     student=student,
                                     billing_rate=billing_rate,
-                                    days_count=int(days) if days and pd.notna(days) else 0
+                                    days_count=days
                                 )
                                 payments_created += 1
-                                print(f"  ✅ Created payment for {month_info['name']}: ₹{mess_charge}")
+                                print(f"    Created payment for {month['name']}: ₹{mess_charge}")
                             else:
-                                print(f"  ⏭️ Payment for {month_info['name']} already exists")
+                                print(f"    Payment for {month['name']} already exists")
                     
                     except Exception as e:
-                        errors.append(f"Student {student_name}, Month {month_info['name']}: {str(e)}")
-                        print(f"Error processing month {month_info['name']}: {e}")
+                        errors.append(f"{student_name} - {month.get('name', 'Unknown')}: {str(e)}")
+                        print(f"Error processing month: {e}")
                 
             except Exception as e:
-                errors.append(f"Row {idx + header_row + 2}: {str(e)}")
+                errors.append(f"Row {idx + 1}: {str(e)}")
                 print(f"Error processing row {idx}: {e}")
         
         # Save uploaded file
@@ -2812,7 +2509,7 @@ def upload_meta_hostel_excel(request):
             'students_created': students_created,
             'students_updated': students_updated,
             'payments_created': payments_created,
-            'errors': errors[:20],
+            'errors': errors[:20] if errors else [],
             'file_path': file_path
         }, status=200)
         
@@ -2850,4 +2547,550 @@ def get_all_billing_rates(request):
         return Response({
             'success': False,
             'error': str(e)
-        }, status=500)        
+        }, status=500)
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def get_all_students_billing_table(request):
+    """
+    Get all students with monthly billing details in table format
+    Columns: Student details + monthly billing for Jul-24 to May-25
+    """
+    try:
+        student_class_filter = request.GET.get('class_yr')
+        
+        students_query = Student.objects.all()
+        if student_class_filter:
+            students_query = students_query.filter(class_yr=student_class_filter)
+        
+        students = students_query.order_by('full_name')
+        
+        month_list = [
+            'July 2024', 'August 2024', 'September 2024', 'October 2024', 
+            'November 2024', 'December 2024', 'January 2025', 'February 2025', 
+            'March 2025', 'April 2025', 'May 2025'
+        ]
+        
+        results = []
+        for student in students:
+            student_payments = MessPayment.objects.filter(
+                roll_no=student.reg_no
+            ).order_by('month')
+            
+            payment_by_month = {}
+            for payment in student_payments:
+                payment_by_month[payment.month] = {
+                    'days': payment.days_count,
+                    'electric_charge': float(payment.billing_rate.electric_charge) if payment.billing_rate else 0,
+                    'mess_charge': float(payment.amount),
+                    'service_charge': float(payment.billing_rate.service_charge) if payment.billing_rate else 0,
+                    'net_demand': float(payment.billing_rate.net_demand) if payment.billing_rate else payment.amount,
+                    'collection': float(payment.billing_rate.collection) if payment.billing_rate else payment.amount,
+                    'date': payment.date.strftime('%Y-%m-%d') if payment.date else None,
+                    'status': payment.status
+                }
+            
+            row = {
+                'sno': len(results) + 1,
+                'name': student.full_name,
+                'roll_no': student.reg_no or student.admission_no,
+                'class': student.class_yr or '',
+                'room_no': student.room_no or '',
+                'phone': student.mobile or '',
+                'dob': student.dob.strftime('%Y-%m-%d') if student.dob else '',
+                'aadhar': student.aadhar or '',
+                'scholarship': '',
+                'caste': student.caste or '',
+                'parent_name': student.father_name or '',
+                'parent_phone': student.father_phone or '',
+                'address': student.address or '',
+                'caution_fee': student.amount or '0',
+            }
+            
+            for month in month_list:
+                payment = payment_by_month.get(month, {})
+                row[f'{month.lower().replace(" ", "_")}_days'] = payment.get('days', '')
+                row[f'{month.lower().replace(" ", "_")}_electric'] = payment.get('electric_charge', '')
+                row[f'{month.lower().replace(" ", "_")}_mess'] = payment.get('mess_charge', '')
+                row[f'{month.lower().replace(" ", "_")}_service'] = payment.get('service_charge', '')
+                row[f'{month.lower().replace(" ", "_")}_net'] = payment.get('net_demand', '')
+                row[f'{month.lower().replace(" ", "_")}_collection'] = payment.get('collection', '')
+                row[f'{month.lower().replace(" ", "_")}_date'] = payment.get('date', '')
+            
+            results.append(row)
+        
+        return Response({
+            'success': True,
+            'data': results,
+            'total_students': len(results),
+            'columns': list(row.keys()) if results else []
+        })
+        
+    except Exception as e:
+        print(f"Error in get_all_students_billing_table: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=500)
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def get_dynamic_billing_by_regno(request):
+    """
+    Get billing details by registration number with dynamic year/month selection
+    Query params: reg_no, year (e.g., 2024, 2025)
+    Returns: Student details + all months billing for specified year
+    """
+    try:
+        reg_no = request.GET.get('reg_no', '').strip()
+        year = request.GET.get('year', '')
+        
+        if not reg_no:
+            return Response({
+                'success': False,
+                'error': 'Registration number is required'
+            }, status=400)
+        
+        if not year:
+            year = str(datetime.now().year)
+        
+        student = Student.objects.filter(reg_no__iexact=reg_no).first()
+        
+        if not student:
+            student = Student.objects.filter(admission_no__iexact=reg_no).first()
+        
+        if not student:
+            return Response({
+                'success': False,
+                'error': 'Student not found'
+            }, status=404)
+        
+        roll_no_to_search = student.reg_no if student.reg_no else student.admission_no
+        
+        print(f"Searching billing for roll_no: {roll_no_to_search}, year: {year}")
+        
+        payments = MessPayment.objects.filter(roll_no__iexact=roll_no_to_search).order_by('date')
+        print(f"Found {payments.count()} payments for this student")
+        
+        all_months = [
+            'January', 'February', 'March', 'April', 'May', 'June',
+            'July', 'August', 'September', 'October', 'November', 'December'
+        ]
+        
+        billing_data = []
+        total_demand = 0
+        total_collected = 0
+        
+        for month_name in all_months:
+            month_full = f"{month_name} {year}"
+            
+            payment = payments.filter(month=month_full, status='Success').first()
+            
+            if payment:
+                billing_data.append({
+                    'month': month_full,
+                    'days': payment.days_count,
+                    'electric_charge': float(payment.billing_rate.electric_charge) if payment.billing_rate else 0,
+                    'mess_charge': float(payment.amount),
+                    'service_charge': float(payment.billing_rate.service_charge) if payment.billing_rate else 0,
+                    'net_demand': float(payment.billing_rate.net_demand) if payment.billing_rate else payment.amount,
+                    'collection': float(payment.billing_rate.collection) if payment.billing_rate else payment.amount,
+                    'date': payment.date.strftime('%Y-%m-%d') if payment.date else None,
+                    'payment_mode': payment.payment_mode,
+                    'status': payment.status
+                })
+                total_demand += float(payment.billing_rate.net_demand) if payment.billing_rate else payment.amount
+                total_collected += float(payment.billing_rate.collection) if payment.billing_rate else payment.amount
+            else:
+                billing_data.append({
+                    'month': month_full,
+                    'days': 0,
+                    'electric_charge': 0,
+                    'mess_charge': 0,
+                    'service_charge': 0,
+                    'net_demand': 0,
+                    'collection': 0,
+                    'date': None,
+                    'payment_mode': '',
+                    'status': 'Pending'
+                })
+        
+        return Response({
+            'success': True,
+            'student': {
+                'name': student.full_name,
+                'reg_no': student.reg_no,
+                'admission_no': student.admission_no,
+                'class_yr': student.class_yr,
+                'room_no': student.room_no,
+                'phone': student.mobile,
+                'dob': student.dob.strftime('%Y-%m-%d') if student.dob else None,
+                'aadhar': student.aadhar,
+                'caste': student.caste,
+                'father_name': student.father_name,
+                'father_phone': student.father_phone,
+                'address': student.address
+            },
+            'year': year,
+            'billing': billing_data,
+            'summary': {
+                'total_months_paid': len([b for b in billing_data if b['status'] == 'Success']),
+                'total_net_demand': total_demand,
+                'total_collected': total_collected,
+                'pending': total_demand - total_collected
+            }
+        })
+        
+    except Exception as e:
+        print(f"Error in get_dynamic_billing_by_regno: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=500)
+
+
+@csrf_exempt
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def upload_excel_unified(request):
+    """
+    Excel format:
+    Row 1: Header row with columns (S.no, Name, Roll no, Class, Room no, Phone, etc)
+    Row 2+: Data with monthly columns (Jul-24 to May-25 for 12 months)
+    
+    Columns:
+    0: S.no
+    1: Name of the Student
+    2: Roll no
+    3: Class
+    4: Room no
+    5: stu. Phone
+    6: DOB
+    7: Stu Aadhar
+    8: Nature of Scholarship
+    9: Caste
+    10: Parent Name
+    11: Parent Phone
+    12: Address
+    13: Hostel
+    14: Caution fee
+    
+    Then for each month: DAYS, ELECTRIC, MESS, SERVICE, NET, COLLECTION, DATE (7 cols per month)
+    - 12 months = 84 columns
+    Plus CREDIT columns at end
+    """
+    from datetime import datetime
+    
+    def safe_str(val):
+        if pd.notna(val):
+            return str(val).strip()
+        return ''
+    
+    def safe_float(val):
+        try:
+            return float(safe_str(val).replace(',', ''))
+        except:
+            return 0.0
+    
+    def safe_int(val):
+        try:
+            return int(safe_float(val))
+        except:
+            return 0
+    
+    try:
+        if request.method != 'POST':
+            return JsonResponse({'error': 'Method not allowed'}, status=405)
+        
+        if 'file' not in request.FILES:
+            return JsonResponse({'error': 'No file provided'}, status=400)
+        
+        excel_file = request.FILES['file']
+        if not excel_file.name.endswith(('.xlsx', '.xls')):
+            return JsonResponse({'error': 'Invalid file format'}, status=400)
+        
+        df = pd.read_excel(excel_file, header=None)
+        
+        if df.empty:
+            return JsonResponse({'error': 'Empty Excel file'}, status=400)
+        
+        print(f"Total rows: {len(df)}, Cols: {len(df.columns)}")
+        
+        # Find header row (contains "S.no", "Name", "Roll")
+        header_row_idx = 0
+        for idx in range(min(5, len(df))):
+            row_str = ' '.join([str(v).lower() for v in df.iloc[idx].values if pd.notna(v)])
+            if 's.no' in row_str and 'name' in row_str and 'roll' in row_str:
+                header_row_idx = idx
+                break
+        
+        headers = [safe_str(h) for h in df.iloc[header_row_idx].values]
+        print(f"Header row {header_row_idx}: {headers[:15]}")
+        
+        # === Find months from rows ABOVE header (merged cells) ===
+        # Row 1 has dates like 2024-07-01, 2024-08-01, etc.
+        months_data = []
+        
+        print(f"\n=== Finding months in row 1 ===")
+        for col_idx in range(15, min(105, len(df.columns)):
+            val = df.iloc[1, col_idx]  # Row 1 has dates
+            if pd.notna(val) and str(val) != 'nan':
+                print(f"  Col {col_idx}: {val}")
+                try:
+                    dt = pd.to_datetime(val)
+                    month_name = dt.strftime('%B %Y')  # "July 2024"
+                    months_data.append({
+                        'name': month_name,
+                        'days': col_idx,
+                        'electric': col_idx + 1,
+                        'mess': col_idx + 2,
+                        'service': col_idx + 3,
+                        'net': col_idx + 4,
+                        'collection': col_idx + 5,
+                        'date': col_idx + 6,
+                    })
+                    print(f"  -> Month: {month_name} at cols {col_idx}-{col_idx+6}")
+                except Exception as e:
+                    pass
+        
+        if not months_data:
+            return JsonResponse({'error': 'No month columns found in row 1'}, status=400)
+        
+        # Student columns mapping (fixed positions)
+        student_cols = {
+            'sno': 0,
+            'name': 1,
+            'roll': 2,
+            'class': 3,
+            'room': 4,
+            'phone': 5,
+            'dob': 6,
+            'aadhar': 7,
+            'scholarship': 8,
+            'caste': 9,
+            'parent_name': 10,
+            'parent_phone': 11,
+            'address': 12,
+            'hostel': 13,
+            'caution': 14
+        }
+        
+        # Process data rows (row 3 onwards)
+        print(f"\n=== Processing {len(months_data)} months: {[m['name'] for m in months_data]}")
+        
+        # Process data rows
+        students_created = 0
+        students_updated = 0
+        payments_created = 0
+        errors = []
+        
+        data_start = header_row_idx + 1
+        
+        for row_idx in range(data_start, len(df)):
+            row = df.iloc[row_idx]
+            
+            # Get student info
+            roll_no = safe_str(row.iloc[student_cols['roll']])
+            name = safe_str(row.iloc[student_cols['name']])
+            
+            # Skip header/empty rows
+            if not roll_no or roll_no == 'nan' or not name or name == 'nan':
+                continue
+            
+            if 'total' in roll_no.lower() or 'total' in name.lower():
+                continue
+            
+            # Clean roll number
+            roll_no = roll_no.replace('.0', '')
+            
+            print(f"\nProcessing: {name} ({roll_no})")
+            
+            # Find or create student
+            student = Student.objects.filter(
+                models.Q(admission_no=roll_no) | models.Q(reg_no=roll_no)
+            ).first()
+            
+            if not student:
+                # Create new student
+                student = Student(
+                    admission_no=roll_no,
+                    reg_no=roll_no,
+                    full_name=name,
+                    mobile=safe_str(row.iloc[student_cols['phone']]),
+                    email=f"{roll_no}@hostel.ac.in",
+                    class_yr=safe_str(row.iloc[student_cols['class']]),
+                    room_no=safe_str(row.iloc[student_cols['room']]),
+                    aadhar=safe_str(row.iloc[student_cols['aadhar']]),
+                    caste=safe_str(row.iloc[student_cols['caste']]),
+                    father_name=safe_str(row.iloc[student_cols['parent_name']]),
+                    father_phone=safe_str(row.iloc[student_cols['parent_phone']]),
+                    address=safe_str(row.iloc[student_cols['address']]),
+                    block=safe_str(row.iloc[student_cols['hostel']]),
+                    amount="13250"
+                )
+                student.save()
+                students_created += 1
+                print(f"  Created student: {roll_no}")
+            else:
+                # Update existing student
+                student.full_name = name
+                student.mobile = safe_str(row.iloc[student_cols['phone']])
+                student.class_yr = safe_str(row.iloc[student_cols['class']])
+                student.room_no = safe_str(row.iloc[student_cols['room']])
+                student.block = safe_str(row.iloc[student_cols['hostel']])
+                student.save()
+                students_updated += 1
+            
+            # Process each month's billing
+            for m in months_data:
+                month_name = m['name']
+                
+                days = safe_int(row.iloc[m['days']])
+                electric = safe_float(row.iloc[m['electric']])
+                mess = safe_float(row.iloc[m['mess']])
+                service = safe_float(row.iloc[m['service']])
+                net = safe_float(row.iloc[m['net']])
+                collection = safe_float(row.iloc[m['collection']])
+                date_val = safe_str(row.iloc[m['date']])
+                
+                if days == 0 and electric == 0 and mess == 0:
+                    continue
+                
+                # Convert date string to date object
+                payment_date = None
+                if date_val and date_val != 'nan':
+                    try:
+                        payment_date = datetime.strptime(date_val.split()[0], '%Y-%m-%d').date()
+                    except:
+                        try:
+                            payment_date = datetime.strptime(date_val.split()[0], '%d-%m-%Y').date()
+                        except:
+                            pass
+                
+                # Create or update payment record
+                status = 'paid' if collection >= net else 'pending'
+                
+                payment, created = MessPayment.objects.update_or_create(
+                    student=student,
+                    month=month_name,
+                    defaults={
+                        'student_name': name,
+                        'roll_no': roll_no,
+                        'room_no': safe_str(row.iloc[student_cols['room']]),
+                        'class_yr': safe_str(row.iloc[student_cols['class']]),
+                        'date': payment_date or datetime.now().date(),
+                        'amount': int(net),
+                        'days_count': days,
+                        'status': status,
+                    }
+                )
+                
+                if created:
+                    payments_created += 1
+                
+                print(f"  {month_name}: days={days}, net={net}, paid={collection}")
+        
+return JsonResponse({
+            'success': True,
+            'students_created': students_created,
+            'students_updated': students_updated,
+            'payments_created': payments_created,
+            'months': [m['name'] for m in months_data]
+        })
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JsonResponse({'error': str(e)}, status=500)
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def get_available_billing_years(request):
+    """
+    Get available years and months from billing data for filter dropdowns
+    """
+    try:
+        payments = MessPayment.objects.all().values_list('month', flat=True).distinct()
+        
+        years = set()
+        months_data = {}
+        
+        for month_str in payments:
+            if month_str:
+                parts = month_str.split()
+                if len(parts) == 2:
+                    month_name, year = parts
+                    years.add(year)
+                    if year not in months_data:
+                        months_data[year] = []
+                    months_data[year].append(month_name)
+        
+        import datetime
+        current_year = str(datetime.datetime.now().year)
+        if current_year not in years:
+            years.add(current_year)
+            if current_year not in months_data:
+                months_data[current_year] = []
+        
+        year_order = ['January', 'February', 'March', 'April', 'May', 'June',
+                    'July', 'August', 'September', 'October', 'November', 'December']
+        
+        sorted_years = sorted(list(years), reverse=True)
+        for year in sorted_years:
+            if year in months_data:
+                months_data[year] = sorted(months_data[year], key=lambda m: year_order.index(m) if m in year_order else 12)
+        
+        return Response({
+            'success': True,
+            'years': sorted_years,
+            'months_by_year': months_data,
+            'current_year': current_year
+        })
+        
+    except Exception as e:
+        return Response({'success': False, 'error': str(e)}, status=500)
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def debug_billing_list(request):
+    """
+    Debug endpoint to list all billing records - for troubleshooting
+    """
+    try:
+        reg_no = request.GET.get('reg_no', '')
+        
+        if reg_no:
+            payments = MessPayment.objects.filter(roll_no__iexact=reg_no).order_by('-date')
+        else:
+            payments = MessPayment.objects.order_by('-date')[:50]
+        
+        data = []
+        for p in payments:
+            data.append({
+                'id': p.id,
+                'roll_no': p.roll_no,
+                'student_name': p.student_name,
+                'month': p.month,
+                'amount': p.amount,
+                'status': p.status,
+                'date': str(p.date) if p.date else None
+            })
+        
+        total = MessPayment.objects.count()
+        
+        return Response({
+            'success': True,
+            'total_records': total,
+            'records': data
+        })
+        
+    except Exception as e:
+        return Response({'success': False, 'error': str(e)}, status=500)

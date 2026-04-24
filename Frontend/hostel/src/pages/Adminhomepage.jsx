@@ -28,9 +28,10 @@ const AdminDashboard = () => {
       setStudent(null);
       setLoading(true);
 
-      const response = await fetch(
-        `http://127.0.0.1:8000/hostel/get-student-profile/?${searchType}=${searchId}`
-      );
+      const searchParam = searchType === "admission_no" ? "admission_no" : "reg_no";
+      const url = `http://127.0.0.1:8000/api/get-student-profile/?${searchParam}=${encodeURIComponent(searchId)}`;
+      
+      const response = await fetch(url);
 
       if (!response.ok) {
         const errorData = await response.json();
@@ -38,10 +39,8 @@ const AdminDashboard = () => {
       }
 
       const data = await response.json();
-      console.log("Fetched student data:", data);
       setStudent(data);
     } catch (err) {
-      console.error("Fetch error:", err);
       setError(err.message || "No student found with this Admission/Registration Number");
     } finally {
       setLoading(false);
@@ -58,7 +57,7 @@ const AdminDashboard = () => {
       setLoading(true);
 
       const response = await fetch(
-        `http://127.0.0.1:8000/hostel/get-student-billing/?${searchType}=${searchId}`
+        `http://127.0.0.1:8000/api/get-student-billing/?${searchType}=${searchId}`
       );
 
       if (!response.ok) throw new Error("No billing records found");
@@ -87,7 +86,7 @@ const AdminDashboard = () => {
     
     try {
       const response = await axios.post(
-        'http://127.0.0.1:8000/hostel/upload-meta-excel/',
+        'http://127.0.0.1:8000/api/upload-meta-hostel-excel/',
         formData,
         { headers: { 'Content-Type': 'multipart/form-data' } }
       );
@@ -325,32 +324,61 @@ const AdminDashboard = () => {
                       label="Mother Name" 
                       value={`${student.mother_name || 'Not Provided'} ${student.mother_phone ? `(${student.mother_phone})` : ''}`} 
                     />
-                    <DataPoint label="Guardian" value={student.guardian_name || 'Not Provided'} />
+                    <DataPoint 
+                      label="Guardian" 
+                      value={`${student.guardian_name || 'Not Provided'} ${student.guardian_phone ? `(${student.guardian_phone})` : ''}`} 
+                    />
                     
-                    <div className="pt-4 text-center">
-                      <div className="w-32 h-40 mx-auto bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200 flex items-center justify-center overflow-hidden shadow-inner">
-                        {student.student_photo ? (
-                          <img
-                            src={student.student_photo.startsWith('http') 
-                                ? student.student_photo 
-                                : `http://127.0.0.1:8000${student.student_photo.startsWith('/') ? '' : '/'}${student.student_photo}`}
-                            alt="Student"
-                            className="w-full h-full object-cover"
-                            onError={(e) => {
-                              e.target.onerror = null; 
-                              e.target.src = "https://via.placeholder.com/150?text=No+Image";
-                            }}
-                          />
-                        ) : (
-                          <div className="text-center">
-                            <svg className="w-12 h-12 mx-auto text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                            </svg>
-                            <span className="text-[10px] text-slate-400 font-bold uppercase mt-2 block">No Photo</span>
-                          </div>
-                        )}
+                    <div className="grid grid-cols-2 gap-4 mt-4">
+                      <div className="text-center">
+                        <div className="w-16 h-20 mx-auto bg-slate-50 rounded-xl border-2 border-dashed border-slate-200 flex items-center justify-center overflow-hidden shadow-inner">
+                          {student.student_photo ? (
+                            <img
+                              src={student.student_photo.startsWith('http') 
+                                  ? student.student_photo 
+                                  : `http://127.0.0.1:8000${student.student_photo.startsWith('/') ? '' : '/'}${student.student_photo}`}
+                              alt="Student"
+                              className="w-full h-full object-cover"
+                              onError={(e) => {
+                                e.target.onerror = null; 
+                                e.target.src = "https://via.placeholder.com/150?text=No+Image";
+                              }}
+                            />
+                          ) : (
+                            <div className="text-center">
+                              <svg className="w-8 h-8 mx-auto text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                              </svg>
+                            </div>
+                          )}
+                        </div>
+                        <p className="text-[9px] font-bold text-slate-400 uppercase mt-1">Student</p>
                       </div>
-                      <p className="text-[10px] font-black text-slate-400 uppercase mt-2 tracking-widest">Student Photo</p>
+                      
+                      <div className="text-center">
+                        <div className="w-16 h-20 mx-auto bg-slate-50 rounded-xl border-2 border-dashed border-slate-200 flex items-center justify-center overflow-hidden shadow-inner">
+                          {student.father_photo ? (
+                            <img
+                              src={student.father_photo.startsWith('http') 
+                                  ? student.father_photo 
+                                  : `http://127.0.0.1:8000${student.father_photo.startsWith('/') ? '' : '/'}${student.father_photo}`}
+                              alt="Father"
+                              className="w-full h-full object-cover"
+                              onError={(e) => {
+                                e.target.onerror = null; 
+                                e.target.src = "https://via.placeholder.com/150?text=No+Image";
+                              }}
+                            />
+                          ) : (
+                            <div className="text-center">
+                              <svg className="w-8 h-8 mx-auto text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                              </svg>
+                            </div>
+                          )}
+                        </div>
+                        <p className="text-[9px] font-bold text-slate-400 uppercase mt-1">Father</p>
+                      </div>
                     </div>
                   </div>
 
