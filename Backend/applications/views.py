@@ -2838,13 +2838,14 @@ def upload_excel_unified(request):
         months_data = []
         
         print(f"\n=== Finding months in row 1 ===")
-        for col_idx in range(15, min(105, len(df.columns)):
-            val = df.iloc[1, col_idx]  # Row 1 has dates
+        max_cols = min(105, len(df.columns))
+        for col_idx in range(15, max_cols):
+            val = df.iloc[1, col_idx]
             if pd.notna(val) and str(val) != 'nan':
                 print(f"  Col {col_idx}: {val}")
                 try:
                     dt = pd.to_datetime(val)
-                    month_name = dt.strftime('%B %Y')  # "July 2024"
+                    month_name = dt.strftime('%B %Y')
                     months_data.append({
                         'name': month_name,
                         'days': col_idx,
@@ -2996,7 +2997,7 @@ def upload_excel_unified(request):
                 
                 print(f"  {month_name}: days={days}, net={net}, paid={collection}")
         
-return JsonResponse({
+        return JsonResponse({
             'success': True,
             'students_created': students_created,
             'students_updated': students_updated,
