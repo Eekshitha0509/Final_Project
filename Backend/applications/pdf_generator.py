@@ -8,6 +8,7 @@ from io import BytesIO
 from django.core.mail import EmailMessage
 from django.conf import settings
 from datetime import datetime
+from student.models import Student
 
 def generate_room_allotment_pdf(booking, student_data, payment):
     """Generate PDF for room allotment"""

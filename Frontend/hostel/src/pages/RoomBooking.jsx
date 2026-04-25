@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import api from "../services/api";
+
+// 🔥 FIXED: We must import 'hostelApi' because your room routes live under /api/app/
+import { hostelApi as api } from "../services/api";
 
 const RoomBooking = () => {
   const navigate = useNavigate();
@@ -10,6 +12,7 @@ const RoomBooking = () => {
   const [activeBooking, setActiveBooking] = useState(null);
   const [blockInfo, setBlockInfo] = useState(null);
   const [floors, setFloors] = useState([]);
+  const [allowedFloors, setAllowedFloors] = useState([]);
 
   useEffect(() => {
     checkInitialStatus();
@@ -17,31 +20,36 @@ const RoomBooking = () => {
 
   const checkInitialStatus = async () => {
     try {
-      // 1. Check if the student already has an active booking
-      // ✅ FIX: Used optional chaining to satisfy SonarLint
       const bookingRes = await api.get("/my-booking/");
-      if (bookingRes.data?.id) {
-        setActiveBooking(bookingRes.data);
+      
+      if (bookingRes.data?.status === 'confirmed' && bookingRes.data?.booking) {
+        setActiveBooking({
+          ...bookingRes.data.booking,
+          _status: 'confirmed'
+        });
+        setLoading(false);
+        return;
+      } 
+      else if (bookingRes.data?.status === 'pending') {
+        setActiveBooking({
+          id: bookingRes.data.booking_id,
+          block_name: blockInfo?.display_name || "Reserved Block",
+          room_number: "Room Locked for Payment",
+          _status: 'pending'
+        });
         setLoading(false);
         return;
       }
     } catch (err) {
-      // ✅ FIX: Logged error to satisfy no-unused-vars and handle exception
       console.warn("No active booking found or fetch failed:", err);
     }
 
     try {
-      // 2. Fetch the specific block assigned to this student's year
       const blockRes = await api.get("/my-block/");
       const blockData = blockRes.data.block;
       setBlockInfo(blockData);
-
-      // 3. Fetch all floors and rooms inside that block
-      // ✅ FIX: Used optional chaining
-      if (blockData?.id) {
-        const floorsRes = await api.get(`/blocks/${blockData.id}/floors/`);
-        setFloors(floorsRes.data.floors || []);
-      }
+      setFloors(blockRes.data.floors || []);
+      setAllowedFloors(blockRes.data.allowed_floors || []);
     } catch (err) {
       setError(
         err.response?.data?.error || 
@@ -53,17 +61,39 @@ const RoomBooking = () => {
   };
 
   const handleBookRoom = async (room) => {
-    const confirmMessage = `Are you sure you want to book Room ${room.room_number}?`;
-    // ✅ FIX: Prefer globalThis over window
+    const confirmMessage = `Are you sure you want to reserve Room ${room.room_number}?`;
     if (!globalThis.confirm(confirmMessage)) return;
 
     setLoading(true);
     try {
       const res = await api.post("/book-room/", { room_id: room.id });
-      alert("Room booked successfully!");
-      setActiveBooking(res.data.booking);
+      
+      if (res.data.booking_id) {
+        setActiveBooking({
+          id: res.data.booking_id,
+          block_name: blockInfo?.display_name || "Hostel Block",
+          room_number: room.room_number,
+          _status: 'pending'
+        });
+      }
     } catch (err) {
       alert(err.response?.data?.error || "Failed to book the room. It might be full.");
+      checkInitialStatus(); // Refresh the grid if someone else took it
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCancelBooking = async () => {
+    if (!globalThis.confirm("Are you sure you want to cancel this reservation and choose another room?")) return;
+    
+    setLoading(true);
+    try {
+      await api.post(`/cancel-booking/${activeBooking.id}/`);
+      setActiveBooking(null);
+      await checkInitialStatus(); // Refresh to show the newly freed room!
+    } catch (err) {
+      alert("Failed to cancel the reservation.");
     } finally {
       setLoading(false);
     }
@@ -82,16 +112,21 @@ const RoomBooking = () => {
   if (activeBooking) {
     return (
       <div className="min-h-screen bg-slate-50 py-12 px-4">
-        <div className="max-w-3xl mx-auto bg-white rounded-xl shadow-xl border-t-8 border-green-600 p-8 text-center">
-          <div className="w-20 h-20 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-6">
+        <div className="max-w-3xl mx-auto bg-white rounded-xl shadow-xl border-t-8 border-[#002147] p-8 text-center">
+          <div className="w-20 h-20 bg-blue-50 text-[#002147] rounded-full flex items-center justify-center mx-auto mb-6">
             <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
             </svg>
           </div>
+          
           <h2 className="text-3xl font-black text-[#002147] uppercase tracking-tighter mb-2">
-            Booking Confirmed
+            {activeBooking._status === 'confirmed' ? "Booking Confirmed" : "Room Reserved"}
           </h2>
-          <p className="text-slate-500 mb-8 font-medium">Your hostel room has been successfully allocated.</p>
+          <p className="text-slate-500 mb-8 font-medium px-4">
+            {activeBooking._status === 'confirmed' 
+              ? "Your hostel room has been successfully allocated." 
+              : "We have locked this bed for you! Please complete your payment to finalize the booking."}
+          </p>
           
           <div className="grid grid-cols-2 gap-4 text-left bg-slate-50 p-6 rounded-lg border border-slate-200 mb-8">
             <div>
@@ -104,12 +139,32 @@ const RoomBooking = () => {
             </div>
           </div>
 
-          <button 
-            onClick={() => navigate(`/payment/${activeBooking.id}`)}
-            className="w-full md:w-auto bg-[#002147] hover:bg-[#003366] text-white font-bold py-3 px-10 rounded shadow-lg uppercase tracking-widest transition"
-          >
-            Proceed to Payment
-          </button>
+          {activeBooking._status !== 'confirmed' && (
+            <div className="flex flex-col sm:flex-row justify-center gap-4">
+              <button 
+                onClick={() => navigate(`/payment/${activeBooking.id}`)}
+                className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-8 rounded shadow-lg uppercase tracking-widest transition"
+              >
+                Proceed to Payment
+              </button>
+              
+              <button 
+                onClick={handleCancelBooking}
+                className="w-full sm:w-auto bg-white border-2 border-red-500 text-red-600 hover:bg-red-50 font-bold py-3 px-8 rounded shadow-lg uppercase tracking-widest transition"
+              >
+                Change Room
+              </button>
+            </div>
+          )}
+          
+          {activeBooking._status === 'confirmed' && (
+            <button 
+              onClick={() => navigate('/homepage')}
+              className="w-full sm:w-auto bg-[#002147] text-white font-bold py-3 px-8 rounded shadow-lg uppercase tracking-widest transition"
+            >
+              Go to Homepage
+            </button>
+          )}
         </div>
       </div>
     );
@@ -126,7 +181,7 @@ const RoomBooking = () => {
           </div>
           {blockInfo && (
             <div className="mt-4 md:mt-0 bg-[#002147] text-white px-6 py-2 rounded-full font-bold shadow-md">
-              {blockInfo.display_name}
+              {blockInfo.display_name} (Floors {allowedFloors.join(', ')})
             </div>
           )}
         </div>

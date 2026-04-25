@@ -52,6 +52,7 @@ INSTALLED_APPS = [
     
     # Custom Apps
     'applications',
+    'student',
 ]
 
 # ========================

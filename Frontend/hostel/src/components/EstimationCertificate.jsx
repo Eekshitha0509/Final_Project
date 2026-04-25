@@ -3,6 +3,8 @@ import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import watermark from "../assets/watermark.jpg";
 
+const STUDENT_API = 'http://127.0.0.1:8000/api/student/';
+
 const EstimationSlip = () => {
   const certificateRef = useRef();
 
@@ -29,8 +31,8 @@ const EstimationSlip = () => {
     setLoading(true);
     try {
       // First fetch student profile
-      const searchParam = searchType === "admission_no" ? "admission_no" : "reg_no";
-      const response = await fetch(`http://127.0.0.1:8000/api/get-student-profile/?${searchParam}=${encodeURIComponent(studentId)}`);
+      const searchParam = searchType === "admission_no" ? "admission_no" : "roll_no";
+      const response = await fetch(`${STUDENT_API}get-student-profile/?${searchParam}=${encodeURIComponent(studentId)}`);
       if (!response.ok) throw new Error("Student not found");
       
       const data = await response.json();
@@ -77,7 +79,7 @@ const EstimationSlip = () => {
       const blobURL = pdf.output("bloburl");
       printWindow.location.href = blobURL;
 
-      await fetch("http://127.0.0.1:8000/api/save-certificate/", {
+      await fetch(STUDENT_API + 'save-certificate/', {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

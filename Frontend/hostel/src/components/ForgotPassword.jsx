@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 
+const API_BASE = 'http://127.0.0.1:8000/api/student/';
+
 function ForgotPassword() {
   const navigate = useNavigate();
   const [step, setStep] = useState(1);
@@ -13,30 +15,26 @@ function ForgotPassword() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  const API_BASE = "http://127.0.0.1:8000/api/";
-  
-  const axiosConfig = {
-    withCredentials: true
-  };
-
   const handleRequestOTP = async (e) => {
     e.preventDefault();
+    if (!email) {
+      setError('Please enter your email');
+      return;
+    }
     setLoading(true);
     setError('');
     
     try {
-      const response = await axios.post(API_BASE + "request-otp/", { email }, axiosConfig);
+      const response = await axios.post(API_BASE + 'request-otp/', { email });
 
-      if (response.data.status === "success") {
-        setSuccess("OTP sent to your email!");
+      if (response.data.status === 'success') {
+        setSuccess('OTP sent to your email!');
         setStep(2);
       } else {
-        setError(response.data.error || "Failed to send OTP");
+        setError(response.data.error || 'Failed to send OTP');
       }
-
-    } catch (error) {
-      console.error("OTP request failed:", error);
-      setError("Failed to send OTP. Please check if the server is running.");
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to send OTP. Please check if the server is running.');
     } finally {
       setLoading(false);
     }
@@ -44,26 +42,25 @@ function ForgotPassword() {
 
   const handleVerifyOTP = async (e) => {
     e.preventDefault();
+    if (!otp) {
+      setError('Please enter OTP');
+      return;
+    }
     setLoading(true);
     setError('');
     
     try {
-      const response = await axios.post(API_BASE + "verify-otp/", {
-        email,
-        otp
-      }, axiosConfig);
+      const response = await axios.post(API_BASE + 'verify-otp/', { email, otp });
 
-      if (response.data.status === "success") {
+      if (response.data.status === 'success') {
         localStorage.setItem('reset_token', response.data.reset_token);
         setSuccess('OTP verified!');
         setStep(3);
       } else {
-        setError(response.data.error || "Invalid OTP");
+        setError(response.data.error || 'Invalid OTP');
       }
-
-    } catch (error) {
-      console.error('OTP verification failed:', error);
-      setError('Invalid OTP. Please try again.');
+    } catch (err) {
+      setError(err.response?.data?.error || 'Invalid OTP');
     } finally {
       setLoading(false);
     }
@@ -71,43 +68,35 @@ function ForgotPassword() {
 
   const handleResetPassword = async (e) => {
     e.preventDefault();
-    setLoading(true);
     setError('');
 
     if (newPassword !== confirmPassword) {
       setError('Passwords do not match!');
-      setLoading(false);
       return;
     }
 
     if (newPassword.length < 6) {
-      setError('Password must be at least 6 characters long!');
-      setLoading(false);
+      setError('Password must be at least 6 characters');
       return;
     }
 
+    setLoading(true);
     try {
       const resetToken = localStorage.getItem('reset_token');
-
-      const response = await axios.post(API_BASE + "reset-password/", {
+      const response = await axios.post(API_BASE + 'reset-password/', {
         reset_token: resetToken,
         new_password: newPassword
-      }, axiosConfig);
+      });
 
-      if (response.data.status === "success") {
+      if (response.data.status === 'success') {
         setSuccess('Password reset successful! Redirecting...');
         localStorage.removeItem('reset_token');
-
-        setTimeout(() => {
-          navigate('/login/student');
-        }, 2000);
+        setTimeout(() => navigate('/login/student'), 2000);
       } else {
-        setError(response.data.error || "Failed to reset password");
+        setError(response.data.error || 'Failed to reset');
       }
-
-    } catch (error) {
-      console.error('Password reset failed:', error);
-      setError('Failed to reset password. Please try again.');
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to reset password');
     } finally {
       setLoading(false);
     }
@@ -132,7 +121,6 @@ function ForgotPassword() {
           </div>
         )}
 
-        {/* STEP 1 */}
         {step === 1 && (
           <form onSubmit={handleRequestOTP} className="flex flex-col gap-4">
             <div>
@@ -143,37 +131,39 @@ function ForgotPassword() {
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="Enter your registered email"
+                placeholder="Enter your email"
                 required
                 className="w-full px-4 py-2 rounded-lg bg-slate-50 border border-slate-200 mt-1"
               />
             </div>
-
-            <button className="w-full bg-[#002147] text-white py-3 rounded-lg border-b-4 border-yellow-500 uppercase">
+            <button type="submit" disabled={loading} className="w-full bg-[#002147] text-white py-3 rounded-lg uppercase">
               {loading ? 'Sending...' : 'Send OTP'}
             </button>
           </form>
         )}
 
-        {/* STEP 2 */}
         {step === 2 && (
           <form onSubmit={handleVerifyOTP} className="flex flex-col gap-4">
-            <input
-              type="text"
-              value={otp}
-              onChange={(e) => setOtp(e.target.value)}
-              placeholder="Enter OTP"
-              required
-              className="w-full px-4 py-2 rounded-lg bg-slate-50 border border-slate-200"
-            />
-
-            <button className="w-full bg-[#002147] text-white py-3 rounded-lg border-b-4 border-yellow-500 uppercase">
+            <div>
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">OTP</label>
+              <input
+                type="text"
+                value={otp}
+                onChange={(e) => setOtp(e.target.value)}
+                placeholder="Enter OTP"
+                required
+                className="w-full px-4 py-2 rounded-lg bg-slate-50 border border-slate-200"
+              />
+            </div>
+            <button type="submit" disabled={loading} className="w-full bg-[#002147] text-white py-3 rounded-lg uppercase">
               {loading ? 'Verifying...' : 'Verify OTP'}
+            </button>
+            <button type="button" onClick={() => setStep(1)} className="text-sm text-slate-500">
+              Back
             </button>
           </form>
         )}
 
-        {/* STEP 3 */}
         {step === 3 && (
           <form onSubmit={handleResetPassword} className="flex flex-col gap-4">
             <input
@@ -184,7 +174,6 @@ function ForgotPassword() {
               required
               className="w-full px-4 py-2 rounded-lg bg-slate-50 border border-slate-200"
             />
-
             <input
               type="password"
               value={confirmPassword}
@@ -193,8 +182,7 @@ function ForgotPassword() {
               required
               className="w-full px-4 py-2 rounded-lg bg-slate-50 border border-slate-200"
             />
-
-            <button className="w-full bg-[#002147] text-white py-3 rounded-lg border-b-4 border-yellow-500 uppercase">
+            <button type="submit" disabled={loading} className="w-full bg-[#002147] text-white py-3 rounded-lg uppercase">
               {loading ? 'Resetting...' : 'Reset Password'}
             </button>
           </form>

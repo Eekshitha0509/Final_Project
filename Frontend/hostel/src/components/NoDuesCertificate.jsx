@@ -3,10 +3,14 @@ import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import watermark from "../assets/watermark.jpg";
 
+const STUDENT_API = 'http://127.0.0.1:8000/api/student/';
+const APP_API = 'http://127.0.0.1:8000/api/app/';
+
 const NoDuesCertificate = () => {
   const certificateRef = useRef();
 
   const [studentId, setStudentId] = useState("");
+  const [searchType, setSearchType] = useState("admission_no");
   const [student, setStudent] = useState(null);
   const [loading, setLoading] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -16,14 +20,15 @@ const NoDuesCertificate = () => {
 
   // --- FETCH STUDENT ---
   const fetchStudent = async () => {
-    if (!studentId) return alert("Please enter a Registration Number");
+    if (!studentId) return alert("Please enter an Admission or Registration Number");
 
     setLoading(true);
     setLoaded(false);
 
     try {
+      const searchParam = searchType === "admission_no" ? "admission_no" : "roll_no";
       const response = await fetch(
-        `http://127.0.0.1:8000/api/get-student-profile/?reg_no=${encodeURIComponent(studentId)}`
+        `${STUDENT_API}get-student-profile/?${searchParam}=${encodeURIComponent(studentId)}`
       );
 
       if (!response.ok) {
@@ -61,7 +66,7 @@ const NoDuesCertificate = () => {
 
       // 🔹 update months
       const updateRes = await fetch(
-        "http://127.0.0.1:8000/api/update-months/",
+        STUDENT_API + 'update-months/',
         {
           method: "POST",
           headers: { 
@@ -84,7 +89,7 @@ const NoDuesCertificate = () => {
 
       // 🔹 check dues
       const res = await fetch(
-        `http://127.0.0.1:8000/api/check-no-dues/?reg_no=${encodeURIComponent(studentId)}`
+        `${APP_API}check-no-dues/`
       );
 
       if (!res.ok) {
@@ -131,7 +136,7 @@ const NoDuesCertificate = () => {
     window.open(blobURL, "_blank");
 
     try {
-      await fetch("http://127.0.0.1:8000/api/save-certificate/", {
+      await fetch(STUDENT_API + 'save-certificate/', {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -155,13 +160,35 @@ const NoDuesCertificate = () => {
       {/* Control Panel */}
       <div className="bg-white shadow-xl rounded-2xl p-8 mb-10 w-150 border border-slate-100">
         
-        {/* 🔥 ONLY CHANGE HERE */}
         <div className="flex flex-col gap-4">
+
+          <div className="flex gap-4 mb-4">
+            <button
+              onClick={() => setSearchType("admission_no")}
+              className={`px-4 py-2 rounded-lg font-bold transition-all text-sm ${
+                searchType === "admission_no" 
+                  ? "bg-blue-600 text-white shadow-md" 
+                  : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+              }`}
+            >
+              Search by Admission Number
+            </button>
+            <button
+              onClick={() => setSearchType("reg_no")}
+              className={`px-4 py-2 rounded-lg font-bold transition-all text-sm ${
+                searchType === "reg_no" 
+                  ? "bg-blue-600 text-white shadow-md" 
+                  : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+              }`}
+            >
+              Search by Registration Number
+            </button>
+          </div>
 
           <div className="flex items-center gap-4">
             <input
               type="text"
-              placeholder="Enter Student Reg No"
+              placeholder={searchType === "admission_no" ? "Enter Admission Number..." : "Enter Registration Number..."}
               value={studentId}
               onChange={(e) => setStudentId(e.target.value)}
               className="flex-1 border border-slate-200 rounded-xl p-4 shadow-sm focus:ring-2 focus:ring-blue-400 outline-none"

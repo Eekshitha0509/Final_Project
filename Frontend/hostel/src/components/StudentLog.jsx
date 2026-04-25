@@ -44,7 +44,8 @@ function StudentLog() {
       
       console.log('Sending login data:', loginData);
       
-      const response = await axios.post('http://127.0.0.1:8000/api/login/', loginData, {
+      const STUDENT_API = 'http://127.0.0.1:8000/api/student/';
+      const response = await axios.post(STUDENT_API + 'login/', loginData, {
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json'

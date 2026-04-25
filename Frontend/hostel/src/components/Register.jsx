@@ -3,6 +3,8 @@ import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from 'axios';
 
+const STUDENT_API = 'http://127.0.0.1:8000/api/student/';
+
 function Register() {
   const navigate = useNavigate();
   const [formData, setFormData] = useState({
@@ -58,7 +60,7 @@ function Register() {
     console.log("Sending registration data:", submitData);
 
     try {
-      const response = await axios.post('http://127.0.0.1:8000/api/register/', submitData);
+      const response = await axios.post(STUDENT_API + 'register/', submitData);
       
       console.log("Registration response:", response.data);
       

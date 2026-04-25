@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import PropTypes from "prop-types"; // ✅ Added to fix missing props validation
-import api from "../services/api";
+import PropTypes from "prop-types";
+import { studentApi as api } from "../services/api";
 
 function Profile() {
   const navigate = useNavigate();

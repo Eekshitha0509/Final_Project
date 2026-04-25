@@ -2,6 +2,9 @@ import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 
+const APP_API = 'http://127.0.0.1:8000/api/app/';
+const STUDENT_API = 'http://127.0.0.1:8000/api/student/';
+
 function MessFeePayment() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
@@ -36,7 +39,7 @@ function MessFeePayment() {
 
   const fetchAllBillingRates = async () => {
     try {
-      const response = await axios.get('http://127.0.0.1:8000/api/get-all-billing-rates/');
+      const response = await axios.get(APP_API + 'get-all-billing-rates/');
       if (response.data.success) {
         const rates = {};
         const months = [];
@@ -65,7 +68,7 @@ function MessFeePayment() {
     
     try {
       const response = await axios.get(
-        `http://127.0.0.1:8000/api/check-month-paid/?roll_no=${roll_no}&month=${month}`
+        `${APP_API}check-month-paid/?roll_no=${roll_no}&month=${month}`
       );
       return response.data.paid === true;
     } catch (error) {
@@ -84,7 +87,7 @@ function MessFeePayment() {
     setLoading(true);
     try {
       const response = await axios.get(
-        `http://127.0.0.1:8000/api/get-student-profile/?${searchType}=${searchId}`
+        `${STUDENT_API}get-student-profile/?${searchType}=${searchId}`
       );
       
       const studentData = response.data;
@@ -200,7 +203,7 @@ function MessFeePayment() {
   // Verify payment
   const verifyPayment = async (paymentResponse, studentData) => {
     try {
-      const res = await axios.post("http://127.0.0.1:8000/api/verify-payment/", {
+      const res = await axios.post(APP_API + 'verify-payment/', {
         razorpay_order_id: paymentResponse.razorpay_order_id,
         razorpay_payment_id: paymentResponse.razorpay_payment_id,
         razorpay_signature: paymentResponse.razorpay_signature,
@@ -255,7 +258,7 @@ function MessFeePayment() {
   // Download PDF receipt
   const handleDownloadPDF = async (receiptId) => {
     try {
-      const response = await axios.get(`http://127.0.0.1:8000/api/receipt/${receiptId}/`, {
+      const response = await axios.get(`${APP_API}receipt/${receiptId}/`, {
         responseType: 'blob',
       });
 
@@ -308,7 +311,7 @@ function MessFeePayment() {
       // Save payment details to backend
       console.log("📝 Saving payment details...");
       const saveResponse = await axios.post(
-        "http://127.0.0.1:8000/api/mess-payment/",
+        STUDENT_API + 'mess-payment/',
         {
           student_name: formData.student_name,
           roll_no: formData.roll_no,
@@ -327,7 +330,7 @@ function MessFeePayment() {
 
       // Create Razorpay order
       console.log("💰 Creating Razorpay order...");
-      const orderRes = await axios.post("http://127.0.0.1:8000/api/create-order/", { 
+      const orderRes = await axios.post(APP_API + 'create-order/', { 
         amount: parseInt(formData.amount),
         roll_no: formData.roll_no
       });

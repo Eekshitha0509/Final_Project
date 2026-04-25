@@ -7,8 +7,11 @@ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 urlpatterns = [
     path('admin/', admin.site.urls),
 
-    # ONLY THIS
-    path('api/', include('applications.urls')),
+    # Student API at /api/student/ - auth, profile, password reset
+    path('api/student/', include('student.urls')),
+    
+    # Hostel API at /api/app/ - blocks, bookings, payments  
+    path('api/app/', include('applications.urls')),
 
     # JWT
     path('api/token/', TokenObtainPairView.as_view()),

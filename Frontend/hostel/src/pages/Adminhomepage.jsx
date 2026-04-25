@@ -2,6 +2,9 @@ import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from 'axios';
 
+const APP_API = 'http://127.0.0.1:8000/api/app/';
+const STUDENT_API = 'http://127.0.0.1:8000/api/student/';
+
 const AdminDashboard = () => {
   const navigate = useNavigate();
 
@@ -14,36 +17,78 @@ const AdminDashboard = () => {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   
-  // --- Upload Excel State ---
-  const [uploadFile, setUploadFile] = useState(null);
+  // --- Registrations State ---
+  const [registrations, setRegistrations] = useState(null);
+  const [regLoading, setRegLoading] = useState(false);
+  
+// --- Upload Excel State ---
+  const [studentFile, setStudentFile] = useState(null);
+  const [billingFile, setBillingFile] = useState(null);
   const [uploading, setUploading] = useState(false);
+  const [uploadType, setUploadType] = useState("student");
   const [uploadResult, setUploadResult] = useState(null);
 
-  // --- API Call: Fetch Student Profile ---
-  const fetchStudent = async () => {
-    if (!searchId) return setError("Please enter Admission or Registration Number");
+  const APP_API = 'http://127.0.0.1:8000/api/app/';
+
+  // --- Upload Student Excel File ---
+  const handleStudentUpload = async () => {
+    if (!studentFile) {
+      alert('Please select a student Excel file first');
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('file', studentFile);
+    
+    setUploading(true);
+    setUploadResult(null);
     
     try {
-      setError("");
-      setStudent(null);
-      setLoading(true);
-
-      const searchParam = searchType === "admission_no" ? "admission_no" : "reg_no";
-      const url = `http://127.0.0.1:8000/api/get-student-profile/?${searchParam}=${encodeURIComponent(searchId)}`;
+      const response = await axios.post(
+        APP_API + 'upload-excel/',
+        formData,
+        { headers: { 'Content-Type': 'multipart/form-data' } }
+      );
       
-      const response = await fetch(url);
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Student not found");
-      }
-
-      const data = await response.json();
-      setStudent(data);
-    } catch (err) {
-      setError(err.message || "No student found with this Admission/Registration Number");
+      setUploadResult({ type: 'student', ...response.data });
+      alert('✅ Student data uploaded successfully!');
+    } catch (error) {
+      console.error('Upload error:', error);
+      alert('❌ Upload failed: ' + (error.response?.data?.error || error.message));
+      setUploadResult({ success: false, message: error.response?.data?.error || error.message });
     } finally {
-      setLoading(false);
+      setUploading(false);
+    }
+  };
+
+  // --- Upload Billing Excel File ---
+  const handleBillingUpload = async () => {
+    if (!billingFile) {
+      alert('Please select a billing Excel file first');
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('file', billingFile);
+    
+    setUploading(true);
+    setUploadResult(null);
+    
+    try {
+      const response = await axios.post(
+        APP_API + 'upload-billing-excel/',
+        formData,
+        { headers: { 'Content-Type': 'multipart/form-data' } }
+      );
+      
+      setUploadResult({ type: 'billing', ...response.data });
+      alert('✅ Billing data uploaded successfully!');
+    } catch (error) {
+      console.error('Upload error:', error);
+      alert('❌ Upload failed: ' + (error.response?.data?.error || error.message));
+      setUploadResult({ success: false, message: error.response?.data?.error || error.message });
+    } finally {
+      setUploading(false);
     }
   };
 
@@ -57,7 +102,7 @@ const AdminDashboard = () => {
       setLoading(true);
 
       const response = await fetch(
-        `http://127.0.0.1:8000/api/get-student-billing/?${searchType}=${searchId}`
+        `${STUDENT_API}get-student-billing/?${searchType}=${searchId}`
       );
 
       if (!response.ok) throw new Error("No billing records found");
@@ -68,6 +113,27 @@ const AdminDashboard = () => {
       setError(err.message || "No billing records found for this student");
     } finally {
       setLoading(false);
+    }
+  };
+
+  // --- API Call: Fetch Registrations Summary ---
+  const fetchRegistrations = async () => {
+    setRegLoading(true);
+    try {
+      const token = localStorage.getItem('access');
+      const response = await fetch(
+        STUDENT_API + 'registrations-summary/',
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      
+      if (!response.ok) throw new Error("Failed to fetch");
+      
+      const data = await response.json();
+      setRegistrations(data);
+    } catch (err) {
+      setError(err.message || "Failed to load registrations");
+    } finally {
+      setRegLoading(false);
     }
   };
 
@@ -86,7 +152,7 @@ const AdminDashboard = () => {
     
     try {
       const response = await axios.post(
-        'http://127.0.0.1:8000/api/upload-meta-hostel-excel/',
+        APP_API + 'upload-meta-hostel-excel/',
         formData,
         { headers: { 'Content-Type': 'multipart/form-data' } }
       );
@@ -154,6 +220,18 @@ const AdminDashboard = () => {
             label="Billing Details" 
           />
           <TabButton 
+            active={activeTab === "registrations"} 
+            onClick={() => {
+              setActiveTab("registrations");
+              setStudent(null);
+              setBillingData(null);
+              setError("");
+              setUploadResult(null);
+              fetchRegistrations();
+            }} 
+            label="📋 Registrations" 
+          />
+          <TabButton 
             active={activeTab === "certificates"} 
             onClick={() => {
               setActiveTab("certificates");
@@ -172,7 +250,8 @@ const AdminDashboard = () => {
               setBillingData(null);
               setError("");
               setUploadResult(null);
-              setUploadFile(null);
+              setStudentFile(null);
+              setBillingFile(null);
             }} 
             label="📤 Upload Excel" 
           />
@@ -536,88 +615,67 @@ const AdminDashboard = () => {
             <h1 className="text-4xl font-light text-slate-900 mb-8">Upload Excel Data</h1>
             
             <div className="bg-white shadow-2xl rounded-[2.5rem] p-10 border border-slate-100">
-              <div className="max-w-2xl mx-auto">
-                {/* Instructions */}
-                <div className="mb-8 p-4 bg-blue-50 rounded-xl">
-                  <h3 className="font-semibold text-blue-800 mb-2">📋 Instructions:</h3>
-                  <ul className="text-sm text-blue-700 space-y-1">
-                    <li>• Click "Choose File" to select your Excel file</li>
-                    <li>• Upload your META Hostel Excel file (META 2024-25 all det.xlsx)</li>
-                    <li>• File should contain student details and monthly payments</li>
-                    <li>• System will extract students and payment records automatically</li>
-                    <li>• Duplicate entries will be skipped</li>
-                  </ul>
+              <div className="max-w-2xl mx-auto space-y-8">
+                
+                {/* Student Data Upload */}
+                <div className="border-2 border-dashed border-blue-300 rounded-xl p-6 bg-blue-50">
+                  <h3 className="text-lg font-bold text-blue-800 mb-3">📚 Upload Student Details</h3>
+                  <p className="text-sm text-blue-600 mb-3">
+                    Columns: reg_no, full_name, dob, aadhar_no, caste, admission_no, admission_date, degree, branch, year, hostel, room_no, mobile, email, address, amount, months_stayed, is_leaving, father_name, father_phone, mother_name, mother_phone
+                  </p>
+                  <input
+                    type="file"
+                    accept=".xlsx,.xls"
+                    onChange={(e) => setStudentFile(e.target.files[0])}
+                    className="mb-3 w-full text-sm form-input"
+                  />
+                  {studentFile && <p className="text-sm text-green-600 mb-2">Selected: {studentFile.name}</p>}
+                  <button
+                    onClick={handleStudentUpload}
+                    disabled={uploading || !studentFile}
+                    className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 rounded-lg transition disabled:opacity-50"
+                  >
+                    {uploading ? "Uploading..." : "Upload Student Data"}
+                  </button>
                 </div>
 
-                {/* File Input - Improved visibility */}
-                <div className="border-2 border-dashed border-slate-300 rounded-xl p-8 text-center">
-                  <label className="cursor-pointer inline-block">
-                    <div className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-lg transition-colors mb-4 inline-block">
-                      📁 Choose File
-                    </div>
-                    <input
-                      type="file"
-                      accept=".xlsx,.xls"
-                      onChange={(e) => setUploadFile(e.target.files[0])}
-                      className="hidden"
-                    />
-                  </label>
-                  
-                  {uploadFile && (
-                    <p className="text-green-600 text-sm mt-4">
-                      ✅ Selected: {uploadFile.name} ({(uploadFile.size / 1024).toFixed(2)} KB)
-                    </p>
-                  )}
-                  
-                  {!uploadFile && (
-                    <p className="text-slate-500 text-sm mt-4">
-                      No file chosen. Click "Choose File" to select your Excel file.
-                    </p>
-                  )}
-                  
+                {/* Billing Rates Upload */}
+                <div className="border-2 border-dashed border-green-300 rounded-xl p-6 bg-green-50">
+                  <h3 className="text-lg font-bold text-green-800 mb-3">💰 Upload Billing Rates</h3>
+                  <p className="text-sm text-green-600 mb-3">
+                    Columns: MONTH, DAYS, MESS_CHARGE, ELECTRIC_CHARGE, DATE
+                  </p>
+                  <input
+                    type="file"
+                    accept=".xlsx,.xls"
+                    onChange={(e) => setBillingFile(e.target.files[0])}
+                    className="mb-3 w-full text-sm form-input"
+                  />
+                  {billingFile && <p className="text-sm text-green-600 mb-2">Selected: {billingFile.name}</p>}
                   <button
-                    onClick={handleFileUpload}
-                    disabled={uploading || !uploadFile}
-                    className={`w-full mt-6 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
-                      !uploadFile ? 'opacity-50 cursor-not-allowed' : ''
-                    }`}
+                    onClick={handleBillingUpload}
+                    disabled={uploading || !billingFile}
+                    className="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-2 rounded-lg transition disabled:opacity-50"
                   >
-                    {uploading ? (
-                      <span className="flex items-center justify-center gap-2">
-                        <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/>
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-                        </svg>
-                        Uploading...
-                      </span>
-                    ) : (
-                      'Upload META Hostel Excel'
-                    )}
+                    {uploading ? "Uploading..." : "Upload Billing Data"}
                   </button>
                 </div>
 
                 {/* Results Summary */}
                 {uploadResult && (
                   <div className={`mt-6 p-4 rounded-xl ${
-                    uploadResult.success ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
+                    uploadResult.success !== false ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
                   }`}>
                     <h4 className="font-bold mb-2">📊 Upload Summary:</h4>
-                    {uploadResult.success ? (
+                    {uploadResult.type === 'student' ? (
                       <>
                         <p>✅ Students Created: {uploadResult.students_created || 0}</p>
-                        <p>🔄 Students Updated: {uploadResult.students_updated || 0}</p>
-                        <p>💰 Payments Created: {uploadResult.payments_created || 0}</p>
                         {uploadResult.message && <p className="mt-2 text-sm">📝 {uploadResult.message}</p>}
-                        {uploadResult.errors && uploadResult.errors.length > 0 && (
-                          <div className="mt-2">
-                            <p className="font-semibold text-red-600">⚠️ Errors ({uploadResult.errors.length}):</p>
-                            <ul className="text-xs text-red-500 list-disc pl-4 max-h-32 overflow-y-auto">
-                              {uploadResult.errors.slice(0, 5).map((err, i) => (
-                                <li key={i}>{err}</li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
+                      </>
+                    ) : uploadResult.type === 'billing' ? (
+                      <>
+                        <p>✅ Billing Records: {uploadResult.count || 0}</p>
+                        {uploadResult.message && <p className="mt-2 text-sm">📝 {uploadResult.message}</p>}
                       </>
                     ) : (
                       <p className="text-red-600">❌ {uploadResult.message || 'Upload failed'}</p>
@@ -627,6 +685,11 @@ const AdminDashboard = () => {
               </div>
             </div>
           </div>
+        )}
+
+        {/* REGISTRATIONS TAB */}
+        {activeTab === "registrations" && (
+          <RegistrationsTab registrations={registrations} loading={regLoading} />
         )}
       </div>
     </div>
@@ -677,5 +740,62 @@ const CertCard = ({ title, path, navigate }) => (
     </button>
   </div>
 );
+
+const RegistrationsTab = ({ registrations, loading }) => {
+  if (loading) return <div className="p-8 text-center">Loading...</div>;
+  if (!registrations) return <div className="p-8 text-center">Click "Registrations" tab to load</div>;
+  
+  const { total_students, year_counts, registrations: regs } = registrations;
+  
+  return (
+    <div className="animate-in fade-in duration-500">
+      <h1 className="text-4xl font-light text-slate-900 mb-8">Student Registrations</h1>
+      
+      {/* Summary Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+        <div className="bg-white p-6 rounded-xl shadow-md border-l-4 border-blue-600">
+          <p className="text-sm text-slate-500">Total Students</p>
+          <p className="text-3xl font-bold text-blue-600">{total_students}</p>
+        </div>
+        {Object.entries(year_counts || {}).map(([year, count]) => (
+          <div key={year} className="bg-white p-6 rounded-xl shadow-md border-l-4 border-green-600">
+            <p className="text-sm text-slate-500">Year {year}</p>
+            <p className="text-3xl font-bold text-green-600">{count}</p>
+          </div>
+        ))}
+      </div>
+      
+      {/* Registrations Table */}
+      <div className="bg-white rounded-xl shadow-md overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-slate-100">
+              <tr>
+                <th className="px-4 py-3 text-left text-xs font-bold text-slate-600 uppercase">Admission No</th>
+                <th className="px-4 py-3 text-left text-xs font-bold text-slate-600 uppercase">Name</th>
+                <th className="px-4 py-3 text-left text-xs font-bold text-slate-600 uppercase">Year</th>
+                <th className="px-4 py-3 text-left text-xs font-bold text-slate-600 uppercase">Branch</th>
+                <th className="px-4 py-3 text-left text-xs font-bold text-slate-600 uppercase">Block</th>
+                <th className="px-4 py-3 text-left text-xs font-bold text-slate-600 uppercase">Room</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(regs || []).map((s) => (
+                <tr key={s.id} className="border-t border-slate-100 hover:bg-slate-50">
+                  <td className="px-4 py-3 font-medium">{s.admission_no}</td>
+                  <td className="px-4 py-3">{s.full_name}</td>
+                  <td className="px-4 py-3">{s.class_yr || '-'}</td>
+                  <td className="px-4 py-3">{s.branch || '-'}</td>
+                  <td className="px-4 py-3">{s.block || 'Not Allotted'}</td>
+                  <td className="px-4 py-3">{s.room_no || 'Not Allotted'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 export default AdminDashboard;

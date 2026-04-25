@@ -1,0 +1,1 @@
+# student/migrations/__init__.py

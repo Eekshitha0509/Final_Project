@@ -6,6 +6,8 @@ function UploadExcel() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
 
+  const APP_API = 'http://127.0.0.1:8000/api/app/';
+
   // Student Upload
   const uploadStudent = async () => {
     if (!studentFile) return alert("Select student file");
@@ -15,7 +17,7 @@ function UploadExcel() {
     formData.append("file", studentFile);
 
     try {
-      const res = await fetch("http://127.0.0.1:8000/hostel/upload-excel/", {
+      const res = await fetch(`${APP_API}upload-excel/`, {
         method: "POST",
         body: formData,
       });
@@ -39,7 +41,7 @@ function UploadExcel() {
     formData.append("file", billingFile);
 
     try {
-      const res = await fetch("http://127.0.0.1:8000/hostel/upload-billing-excel/", {
+      const res = await fetch(`${APP_API}upload-billing-excel/`, {
         method: "POST",
         body: formData,
       });
