@@ -22,7 +22,7 @@ from .models import Block, Floor, Room, Booking, Payment
 from .serializers import *
 from .pdf_generator import send_room_allotment_email
 
-from student.models import PasswordResetOTP, StudentRegistration, Certificate, Student, MessPayment, BillingRate
+from student.models import PasswordResetOTP, StudentRegistration, Certificate, Student, MessPayment, BillingRate, StudentBillingRecord
 
 import traceback
 import razorpay
@@ -791,7 +791,6 @@ def upload_billing_excel(request):
         return Response({"error": "No file uploaded"}, status=400)
 
     try:
-        # Step 1: Auto-detect header row by scanning for "name of the student" and "roll no"
         temp_df = pd.read_excel(file, header=None)
         header_row = 0
         for i in range(min(5, len(temp_df))):
@@ -801,32 +800,48 @@ def upload_billing_excel(request):
                 header_row = i
                 break
         
-        # Step 2: Read with found header row, clean columns
         df = pd.read_excel(file, header=header_row)
         df.columns = df.columns.str.strip().str.lower()
         
         records_created = 0
-        current_year = datetime.now().year
+        
+        def safe_float(val):
+            try:
+                if pd.isna(val):
+                    return 0
+                if isinstance(val, str):
+                    val = val.replace(',', '').strip()
+                    if val == '' or val.lower() == 'nan':
+                        return 0
+                return float(val)
+            except:
+                return 0
 
-        months = ['July', 'August', 'September', 'October', 'November', 'December', 
-                  'January', 'February', 'March', 'April', 'May']
+        def safe_date(val):
+            if pd.isna(val):
+                return None
+            try:
+                return pd.to_datetime(val).strftime('%Y-%m-%d')
+            except:
+                return None
+
+        month_order = [
+            ('jul-24', 'Jul-24'), ('aug-24', 'Aug-24'), ('sep-24', 'Sep-24'),
+            ('oct-24', 'Oct-24'), ('nov-24', 'Nov-24'), ('dec-24', 'Dec-24'),
+            ('jan-25', 'Jan-25'), ('feb-25', 'Feb-25'), ('mar-25', 'Mar-25'),
+            ('apr-25', 'Apr-25'), ('may-25', 'May-25'),
+        ]
 
         with transaction.atomic():
-            for _, row in df.iterrows():
-                # Step 3: Get roll no (often read as float like 322506402053.0)
+            for idx, row in df.iterrows():
                 roll_no_raw = row.get('roll no')
                 if pd.isna(roll_no_raw) or str(roll_no_raw).strip() == '':
                     continue
                 
-                # Convert to string, split by decimal, strip
                 reg_no = str(roll_no_raw).split('.')[0].strip()
                 
-                # Get student name
                 student_name = str(row.get('name of the student', '')).strip()
-                if not student_name:
-                    student_name = ''
                 
-                # Ensure student exists
                 student, created = Student.objects.get_or_create(
                     reg_no=reg_no,
                     defaults={
@@ -835,51 +850,60 @@ def upload_billing_excel(request):
                     }
                 )
                 
-                # Step 4: Loop through 11 months
-                for idx in range(11):
-                    # Construct column names
-                    col_collection = f"collection.{idx}" if idx > 0 else "collection"
-                    col_date = f"date.{idx}" if idx > 0 else "date"
-                    
-                    # Get collection value
-                    collection_val = row.get(col_collection)
-                    if not collection_val or pd.isna(collection_val):
-                        continue
-                    
+                billing_record, _ = StudentBillingRecord.objects.get_or_create(
+                    roll_no=reg_no,
+                    year='2024-25',
+                    defaults={
+                        'student': student,
+                        'student_name': student_name
+                    }
+                )
+                
+                base_cols = ['days', 'electric charge', 'mess charge', 'service charge', 'net demand', 'collection', 'date']
+                
+                for month_idx, (col_key, month_label) in enumerate(month_order):
                     try:
-                        amount = int(float(collection_val))
-                        if amount <= 0:
-                            continue
-                    except (ValueError, TypeError):
+                        if month_idx == 0:
+                            days = safe_float(row.get('days'))
+                            electric = safe_float(row.get('electric charge'))
+                            mess = safe_float(row.get('mess charge'))
+                            service = safe_float(row.get('service charge'))
+                            net = safe_float(row.get('net demand'))
+                            coll = safe_float(row.get('collection'))
+                            date_str = safe_date(row.get('date'))
+                        else:
+                            days = safe_float(row.get(f'days.{month_idx}'))
+                            electric = safe_float(row.get(f'electric charge.{month_idx}'))
+                            mess = safe_float(row.get(f'mess charge.{month_idx}'))
+                            service = safe_float(row.get(f'service charge.{month_idx}'))
+                            net = safe_float(row.get(f'net demand.{month_idx}'))
+                            coll = safe_float(row.get(f'collection.{month_idx}'))
+                            date_str = safe_date(row.get(f'date.{month_idx}'))
+                        
+                        if days > 0 or electric > 0 or mess > 0 or service > 0 or net > 0 or coll > 0:
+                            month_data = {
+                                'days': int(days),
+                                'electric_charge': electric,
+                                'mess_charge': mess,
+                                'service_charge': service,
+                                'net_demand': net,
+                                'collection': coll,
+                                'date': date_str
+                            }
+                            billing_record.set_month_data(month_label, month_data)
+                    except Exception as e:
                         continue
-                    
-                    # Get payment date
-                    date_val = row.get(col_date)
-                    if pd.notna(date_val):
-                        payment_date = parse_date(date_val)
-                    else:
-                        payment_date = datetime.now().date()
-                    
-                    # Create MessPayment record
-                    month_name = months[idx]
-                    import uuid
-                    receipt_no = f"EXCEL-{reg_no}-{month_name}-{current_year}"
-                    
-                    MessPayment.objects.create(
-                        receipt_no=receipt_no,
-                        roll_no=reg_no,
-                        month=month_name,
-                        student_name=student_name or reg_no,
-                        date=payment_date,
-                        amount=amount,
-                        payment_mode="Excel Ledger",
-                        status="Success"
-                    )
-                    records_created += 1
+                
+                credit_val = row.get('credit')
+                if pd.notna(credit_val):
+                    billing_record.credit = safe_float(credit_val)
+                
+                billing_record.save()
+                records_created += 1
 
         return Response({
             "message": "Billing data uploaded successfully!",
-            "payments_created": records_created
+            "records_created": records_created
         })
 
     except Exception as e:
@@ -887,10 +911,138 @@ def upload_billing_excel(request):
         print("BILLING ERROR:", traceback.format_exc())
         return Response({"error": f"Failed: {str(e)}"}, status=500)
 
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def fetch_student_billing(request):
+    reg_no = request.GET.get('reg_no')
+    if not reg_no:
+        return Response({"error": "Registration number is required"}, status=400)
+    
+    try:
+        student = Student.objects.filter(reg_no__iexact=reg_no).first()
+        if not student:
+            return Response({"error": "Student not found", "student": None}, status=404)
+        
+        billing_records = StudentBillingRecord.objects.filter(roll_no=reg_no)
+        
+        if not billing_records.exists():
+            return Response({
+                "student": {
+                    "reg_no": student.reg_no,
+                    "full_name": student.full_name,
+                    "roll_no": student.roll_no,
+                    "room_no": student.room_no,
+                    "block": student.block
+                },
+                "billing_data": [],
+                "message": "No billing records found"
+            })
+        
+        billing_data = []
+        for record in billing_records:
+            data = {
+                "year": record.year,
+                "credit": float(record.credit) if record.credit else 0,
+                "months": {
+                    "Jul-24": record.july_data,
+                    "Aug-24": record.august_data,
+                    "Sep-24": record.september_data,
+                    "Oct-24": record.october_data,
+                    "Nov-24": record.november_data,
+                    "Dec-24": record.december_data,
+                    "Jan-25": record.january_data,
+                    "Feb-25": record.february_data,
+                    "Mar-25": record.march_data,
+                    "Apr-25": record.april_data,
+                    "May-25": record.may_data,
+                }
+            }
+            billing_data.append(data)
+        
+        return Response({
+            "student": {
+                "reg_no": student.reg_no,
+                "full_name": student.full_name,
+                "roll_no": student.roll_no,
+                "room_no": student.room_no,
+                "block": student.block
+            },
+            "billing_data": billing_data
+        })
+    
+    except Exception as e:
+        import traceback
+        print("FETCH BILLING ERROR:", traceback.format_exc())
+        return Response({"error": str(e)}, status=500)
+
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def get_student_billing(request):
-    return Response({'student': {}, 'billing_history': [], 'total_paid': 0, 'total_months': 0})
+    reg_no = request.GET.get('reg_no') or request.GET.get('admission_no')
+    if not reg_no:
+        return Response({"error": "reg_no or admission_no required"}, status=400)
+    
+    try:
+        student = Student.objects.filter(reg_no__iexact=reg_no).first()
+        if not student:
+            student = Student.objects.filter(admission_no__iexact=reg_no).first()
+        if not student:
+            return Response({"error": "Student not found"}, status=404)
+        
+        billing_records = StudentBillingRecord.objects.filter(roll_no=student.reg_no)
+        
+        if not billing_records.exists():
+            return Response({
+                "student": {
+                    "reg_no": student.reg_no,
+                    "full_name": student.full_name,
+                    "roll_no": student.roll_no,
+                    "room_no": student.room_no,
+                    "block": student.block
+                },
+                "billing_data": [],
+                "total_credit": 0
+            })
+        
+        all_data = []
+        total_credit = 0
+        for record in billing_records:
+            total_credit += float(record.credit) if record.credit else 0
+            all_data.append({
+                "year": record.year,
+                "credit": float(record.credit) if record.credit else 0,
+                "months": {
+                    "Jul-24": record.july_data,
+                    "Aug-24": record.august_data,
+                    "Sep-24": record.september_data,
+                    "Oct-24": record.october_data,
+                    "Nov-24": record.november_data,
+                    "Dec-24": record.december_data,
+                    "Jan-25": record.january_data,
+                    "Feb-25": record.february_data,
+                    "Mar-25": record.march_data,
+                    "Apr-25": record.april_data,
+                    "May-25": record.may_data,
+                }
+            })
+        
+        return Response({
+            "student": {
+                "reg_no": student.reg_no,
+                "full_name": student.full_name,
+                "roll_no": student.roll_no,
+                "room_no": student.room_no,
+                "block": student.block
+            },
+            "billing_data": all_data,
+            "total_credit": total_credit
+        })
+    
+    except Exception as e:
+        import traceback
+        print("GET BILLING ERROR:", traceback.format_exc())
+        return Response({"error": str(e)}, status=500)
 
 @api_view(['GET'])
 @permission_classes([AllowAny])

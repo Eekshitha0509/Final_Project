@@ -38,6 +38,7 @@ urlpatterns = [
     
     # Billing
     path('get-student-billing/', views.get_student_billing, name='get_student_billing'),
+    path('fetch-student-billing/', views.fetch_student_billing, name='fetch_student_billing'),
     path('get-all-billing-rates/', views.get_all_billing_rates, name='get_all_billing_rates'),
     path('check-no-dues/', views.check_no_dues, name='check_no_dues'),
     

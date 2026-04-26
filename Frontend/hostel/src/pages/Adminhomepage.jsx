@@ -105,9 +105,16 @@ const AdminDashboard = () => {
         `${STUDENT_API}get-student-billing/?${searchType}=${searchId}`
       );
 
-      if (!response.ok) throw new Error("No billing records found");
-
       const data = await response.json();
+      
+      if (data.error) {
+        throw new Error(data.error);
+      }
+      
+      if (!data.billing_data || data.billing_data.length === 0 || !data.billing_data[0]?.months) {
+        throw new Error("No billing records found for this student");
+      }
+      
       setBillingData(data);
     } catch (err) {
       setError(err.message || "No billing records found for this student");
@@ -534,13 +541,13 @@ const AdminDashboard = () => {
                 <div className="mb-8 p-6 bg-slate-50 rounded-xl">
                   <h3 className="text-xl font-bold text-slate-800 mb-4">Student Summary</h3>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <DataPoint label="Student Name" value={billingData.student?.name} />
-                    <DataPoint label="Admission No" value={billingData.student?.admission_no} />
+                    <DataPoint label="Student Name" value={billingData.student?.full_name} />
+                    <DataPoint label="Admission No" value={billingData.student?.admission_no || billingData.student?.reg_no} />
                     <DataPoint label="Registration No" value={billingData.student?.reg_no} />
                     <DataPoint label="Room No" value={billingData.student?.room_no} />
                     <DataPoint label="Class/Year" value={billingData.student?.class_yr} />
-                    <DataPoint label="Total Paid" value={`₹${billingData.total_paid || 0}`} />
-                    <DataPoint label="Total Months" value={billingData.total_months || 0} />
+                    <DataPoint label="Total Paid" value={`₹${billingData.total_credit || 0}`} />
+                    <DataPoint label="Total Months" value={billingData.billing_data?.[0]?.months ? Object.keys(billingData.billing_data[0].months).length : 0} />
                   </div>
                 </div>
 
@@ -557,37 +564,35 @@ const AdminDashboard = () => {
                         <th className="px-4 py-3 text-left">Net Demand</th>
                         <th className="px-4 py-3 text-left">Collection</th>
                         <th className="px-4 py-3 text-left">Date</th>
-                        <th className="px-4 py-3 text-left">Transaction ID</th>
-                        <th className="px-4 py-3 text-left">Payment Time</th>
                         <th className="px-4 py-3 text-left">Status</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {billingData.billing_history && billingData.billing_history.length > 0 ? (
-                        billingData.billing_history.map((bill, index) => (
-                          <tr key={index} className="border-b border-slate-200 hover:bg-slate-50">
-                            <td className="px-4 py-3">{bill.month}</td>
-                            <td className="px-4 py-3">{bill.days}</td>
-                            <td className="px-4 py-3">₹{bill.electric_charge}</td>
-                            <td className="px-4 py-3">₹{bill.mess_charge}</td>
-                            <td className="px-4 py-3">₹{bill.service_charge}</td>
-                            <td className="px-4 py-3 font-semibold">₹{bill.net_demand}</td>
-                            <td className="px-4 py-3 text-green-600">₹{bill.collection}</td>
-                            <td className="px-4 py-3">{bill.date}</td>
-                            <td className="px-4 py-3 text-sm">{bill.transaction_id || 'N/A'}</td>
-                            <td className="px-4 py-3 text-sm">{bill.payment_time || 'N/A'}</td>
-                            <td className="px-4 py-3">
-                              <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
-                                bill.status === 'Success' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
-                              }`}>
-                                {bill.status}
-                              </span>
-                            </td>
-                          </tr>
+                      {billingData.billing_data && billingData.billing_data.length > 0 && billingData.billing_data[0].months ? (
+                        Object.entries(billingData.billing_data[0].months).map(([month, data]) => (
+                          data && (data.days > 0 || data.collection > 0) && (
+                            <tr key={month} className="border-b border-slate-200 hover:bg-slate-50">
+                              <td className="px-4 py-3 font-medium">{month}</td>
+                              <td className="px-4 py-3">{data.days || '-'}</td>
+                              <td className="px-4 py-3">₹{data.electric_charge || 0}</td>
+                              <td className="px-4 py-3">₹{data.mess_charge || 0}</td>
+                              <td className="px-4 py-3">₹{data.service_charge || 0}</td>
+                              <td className="px-4 py-3 font-semibold">₹{data.net_demand || 0}</td>
+                              <td className="px-4 py-3 text-green-600 font-bold">₹{data.collection || 0}</td>
+                              <td className="px-4 py-3">{data.date || '-'}</td>
+                              <td className="px-4 py-3">
+                                <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
+                                  data.collection > 0 ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
+                                }`}>
+                                  {data.collection > 0 ? 'Paid' : 'Pending'}
+                                </span>
+                              </td>
+                            </tr>
+                          )
                         ))
                       ) : (
                         <tr>
-                          <td colSpan="11" className="text-center py-8 text-slate-500">
+                          <td colSpan="9" className="text-center py-8 text-slate-500">
                             No billing records found
                           </td>
                         </tr>

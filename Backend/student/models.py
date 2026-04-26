@@ -178,6 +178,63 @@ class MessPayment(models.Model):
         return f"{self.receipt_no} - {self.student_name} - {self.month} - ₹{self.amount}"
 
 
+class StudentBillingRecord(models.Model):
+    MONTH_CHOICES = [
+        ('Jul-24', 'Jul-24'), ('Aug-24', 'Aug-24'), ('Sep-24', 'Sep-24'),
+        ('Oct-24', 'Oct-24'), ('Nov-24', 'Nov-24'), ('Dec-24', 'Dec-24'),
+        ('Jan-25', 'Jan-25'), ('Feb-25', 'Feb-25'), ('Mar-25', 'Mar-25'),
+        ('Apr-25', 'Apr-25'), ('May-25', 'May-25'),
+    ]
+    
+    student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name='billing_records', null=True, blank=True)
+    roll_no = models.CharField(max_length=20, blank=True, null=True)
+    student_name = models.CharField(max_length=100, blank=True, null=True)
+    year = models.CharField(max_length=10, default="2024-25")
+    credit = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    # JSON fields to store monthly data
+    july_data = models.JSONField(default=dict, blank=True)
+    august_data = models.JSONField(default=dict, blank=True)
+    september_data = models.JSONField(default=dict, blank=True)
+    october_data = models.JSONField(default=dict, blank=True)
+    november_data = models.JSONField(default=dict, blank=True)
+    december_data = models.JSONField(default=dict, blank=True)
+    january_data = models.JSONField(default=dict, blank=True)
+    february_data = models.JSONField(default=dict, blank=True)
+    march_data = models.JSONField(default=dict, blank=True)
+    april_data = models.JSONField(default=dict, blank=True)
+    may_data = models.JSONField(default=dict, blank=True)
+    
+    class Meta:
+        unique_together = ('roll_no', 'year')
+    
+    def get_month_data(self, month_key):
+        data_map = {
+            'Jul-24': self.july_data, 'Aug-24': self.august_data, 'Sep-24': self.september_data,
+            'Oct-24': self.october_data, 'Nov-24': self.november_data, 'Dec-24': self.december_data,
+            'Jan-25': self.january_data, 'Feb-25': self.february_data, 'Mar-25': self.march_data,
+            'Apr-25': self.april_data, 'May-25': self.may_data,
+        }
+        return data_map.get(month_key, {})
+    
+    def set_month_data(self, month_key, data):
+        data_map = {
+            'Jul-24': 'july_data', 'Aug-24': 'august_data', 'Sep-24': 'september_data',
+            'Oct-24': 'october_data', 'Nov-24': 'november_data', 'Dec-24': 'december_data',
+            'Jan-25': 'january_data', 'Feb-25': 'february_data', 'Mar-25': 'march_data',
+            'Apr-25': 'april_data', 'May-25': 'may_data',
+        }
+        field_name = data_map.get(month_key)
+        if field_name:
+            setattr(self, field_name, data)
+    
+    def __str__(self):
+        return f"{self.roll_no} - {self.year}"
+
+
+# Keep old model for compatibility, but new model is StudentBillingRecord
 class StudentBilling(models.Model):
     STATUS_CHOICES = [
         ('pending', 'Pending'),

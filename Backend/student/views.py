@@ -519,45 +519,65 @@ def mess_payment(request):
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def get_student_billing(request):
-    from .models import StudentBilling, Student
+    from .models import StudentBillingRecord, Student
     
-    roll_no = request.GET.get('reg_no')
+    roll_no = request.GET.get('reg_no') or request.GET.get('admission_no')
     if not roll_no:
-        return Response({"error": "reg_no required"}, status=400)
+        return Response({"error": "reg_no or admission_no required"}, status=400)
     
-    # Get student
     student = Student.objects.filter(reg_no=roll_no).first()
+    if not student:
+        student = Student.objects.filter(admission_no=roll_no).first()
     if not student:
         return Response({"error": "Student not found"}, status=404)
     
-    # Get billing records
-    billings = StudentBilling.objects.filter(roll_no=roll_no).order_by('-year', '-id')
+    billing_records = StudentBillingRecord.objects.filter(roll_no=student.reg_no)
     
-    total_paid = sum(b.amount_paid for b in billings)
-    total_months = billings.count()
+    if not billing_records.exists():
+        return Response({
+            "student": {
+                "reg_no": student.reg_no,
+                "full_name": student.full_name,
+                "roll_no": student.roll_no,
+                "room_no": student.room_no,
+                "block": student.block
+            },
+            "billing_data": [],
+            "total_credit": 0
+        })
     
-    billing_history = []
-    for b in billings:
-        billing_history.append({
-            "month": b.month,
-            "year": b.year,
-            "amount_paid": float(b.amount_paid),
-            "payment_date": b.payment_date.strftime('%Y-%m-%d') if b.payment_date else None,
-            "payment_status": b.payment_status
+    all_data = []
+    total_credit = 0
+    for record in billing_records:
+        total_credit += float(record.credit) if record.credit else 0
+        all_data.append({
+            "year": record.year,
+            "credit": float(record.credit) if record.credit else 0,
+            "months": {
+                "Jul-24": record.july_data,
+                "Aug-24": record.august_data,
+                "Sep-24": record.september_data,
+                "Oct-24": record.october_data,
+                "Nov-24": record.november_data,
+                "Dec-24": record.december_data,
+                "Jan-25": record.january_data,
+                "Feb-25": record.february_data,
+                "Mar-25": record.march_data,
+                "Apr-25": record.april_data,
+                "May-25": record.may_data,
+            }
         })
     
     return Response({
         "student": {
             "reg_no": student.reg_no,
             "full_name": student.full_name,
-            "class_yr": student.class_yr,
-            "branch": student.branch,
+            "roll_no": student.roll_no,
             "room_no": student.room_no,
             "block": student.block
         },
-        "billing_history": billing_history,
-        "total_paid": float(total_paid),
-        "total_months": total_months
+        "billing_data": all_data,
+        "total_credit": total_credit
     })
 
 
