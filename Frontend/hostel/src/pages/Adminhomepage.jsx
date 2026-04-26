@@ -28,7 +28,38 @@ const AdminDashboard = () => {
   const [uploadType, setUploadType] = useState("student");
   const [uploadResult, setUploadResult] = useState(null);
 
-  const APP_API = 'http://127.0.0.1:8000/api/app/';
+  // --- API Call: Fetch Student Details ---
+  const fetchStudent = async () => {
+    if (!searchId) return setError("Please enter Admission or Registration Number");
+    
+    try {
+      setError("");
+      setStudent(null);
+      setLoading(true);
+
+      const response = await fetch(
+        `${STUDENT_API}get-student/?${searchType}=${searchId}`
+      );
+
+      if (!response.ok) {
+        throw new Error(`Server error: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      console.log("Student API Response:", data);
+      
+      if (data.error) {
+        throw new Error(data.error);
+      }
+      
+      setStudent(data);
+    } catch (err) {
+      setError(err.message || "No student records found");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // --- Upload Student Excel File ---
   const handleStudentUpload = async () => {
@@ -127,15 +158,14 @@ const AdminDashboard = () => {
   const fetchRegistrations = async () => {
     setRegLoading(true);
     try {
-      const token = localStorage.getItem('access');
       const response = await fetch(
-        STUDENT_API + 'registrations-summary/',
-        { headers: { Authorization: `Bearer ${token}` } }
+        STUDENT_API + 'registrations-summary/'
       );
       
       if (!response.ok) throw new Error("Failed to fetch");
       
       const data = await response.json();
+      console.log("Registrations API Response:", data);
       setRegistrations(data);
     } catch (err) {
       setError(err.message || "Failed to load registrations");

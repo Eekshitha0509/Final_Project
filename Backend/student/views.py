@@ -592,7 +592,34 @@ def get_all_students(request):
 
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
+def get_student(request):
+    """Get single student by admission_no or reg_no"""
+    from .models import Student
+    
+    admission_no = request.query_params.get('admission_no')
+    reg_no = request.query_params.get('reg_no')
+    
+    if admission_no:
+        try:
+            student = Student.objects.get(admission_no=admission_no)
+        except Student.DoesNotExist:
+            return Response({'error': 'Student not found'}, status=404)
+    elif reg_no:
+        try:
+            student = Student.objects.get(reg_no=reg_no)
+        except Student.DoesNotExist:
+            return Response({'error': 'Student not found'}, status=404)
+    else:
+        return Response({'error': 'Please provide admission_no or reg_no'}, status=400)
+    
+    from .serializers import StudentSerializer
+    serializer = StudentSerializer(student)
+    return Response(serializer.data)
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
 def get_registrations_summary(request):
     """Get all registrations with year-wise count"""
     from .models import Student

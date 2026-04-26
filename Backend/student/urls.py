@@ -26,6 +26,7 @@ urlpatterns = [
     
     # Students
     path('get-all-students/', views.get_all_students, name='get_all_students'),
+    path('get-student/', views.get_student, name='get_student'),
     path('registrations-summary/', views.get_registrations_summary, name='registrations_summary'),
     
     # Billing
