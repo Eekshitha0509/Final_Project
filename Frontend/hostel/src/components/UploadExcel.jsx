@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { toast } from 'react-toastify';
 
 function UploadExcel() {
   const [studentFile, setStudentFile] = useState(null);
@@ -10,7 +11,7 @@ function UploadExcel() {
 
   // Student Upload
   const uploadStudent = async () => {
-    if (!studentFile) return alert("Select student file");
+    if (!studentFile) return toast.warn("Select student file");
 
     setLoading(true);
     const formData = new FormData();
@@ -24,9 +25,9 @@ function UploadExcel() {
 
       const data = await res.json();
       setResult({ type: 'student', data });
-      alert(data.message || "Student data uploaded successfully!");
+      toast.success(data.message || "Student data uploaded successfully!");
     } catch (error) {
-      alert("Error uploading student data: " + error.message);
+      toast.error("Error uploading student data: " + error.message);
     } finally {
       setLoading(false);
     }
@@ -34,7 +35,7 @@ function UploadExcel() {
 
   // Billing Upload
   const uploadBilling = async () => {
-    if (!billingFile) return alert("Select billing file");
+    if (!billingFile) return toast.warn("Select billing file");
 
     setLoading(true);
     const formData = new FormData();
@@ -48,9 +49,9 @@ function UploadExcel() {
 
       const data = await res.json();
       setResult({ type: 'billing', data });
-      alert(data.message || "Billing data uploaded successfully!");
+      toast.success(data.message || "Billing data uploaded successfully!");
     } catch (error) {
-      alert("Error uploading billing data: " + error.message);
+      toast.error("Error uploading billing data: " + error.message);
     } finally {
       setLoading(false);
     }

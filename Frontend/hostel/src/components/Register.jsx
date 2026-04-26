@@ -2,6 +2,7 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from 'axios';
+import { toast } from 'react-toastify';
 
 const STUDENT_API = 'http://127.0.0.1:8000/api/student/';
 
@@ -65,7 +66,7 @@ function Register() {
       console.log("Registration response:", response.data);
       
       if (response.data.success) {
-        alert("Registration successful! Please login.");
+        toast.success("Registration successful! Please login.");
         navigate('/login/student');
       } else {
         setError(JSON.stringify(response.data.errors) || "Registration failed");

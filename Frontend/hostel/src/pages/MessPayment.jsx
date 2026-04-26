@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
+import { toast } from 'react-toastify';
 
 const APP_API = 'http://127.0.0.1:8000/api/app/';
 const STUDENT_API = 'http://127.0.0.1:8000/api/student/';
@@ -80,15 +81,24 @@ function MessFeePayment() {
   // Fetch student details
   const fetchStudentDetails = async () => {
     if (!searchId) {
-      alert('Please enter Admission or Registration number');
+      toast.warn('Please enter Admission or Registration number');
       return;
     }
 
     setLoading(true);
     try {
+      console.log("Fetching student:", `${STUDENT_API}get-student-profile/?${searchType}=${searchId}`);
+      
+      // Add auth header
+      const token = localStorage.getItem('access');
       const response = await axios.get(
-        `${STUDENT_API}get-student-profile/?${searchType}=${searchId}`
+        `${STUDENT_API}get-student-profile/?${searchType}=${searchId}`,
+        token ? {
+          headers: { Authorization: `Bearer ${token}` }
+        } : {}
       );
+      
+      console.log("Student API response:", response.data);
       
       const studentData = response.data;
       
@@ -105,12 +115,13 @@ function MessFeePayment() {
         });
         setStudentFound(true);
       } else {
-        alert('Student not found');
+        console.log("Student not found, error:", studentData.error);
+        toast.error(studentData.error || 'Student not found');
         setStudentFound(false);
       }
     } catch (error) {
-      console.error('Error fetching student:', error);
-      alert('Student not found. Please check the number.');
+      console.error('Error fetching student:', error.response?.data || error.message);
+      toast.error('Student not found. Please check the number.');
       setStudentFound(false);
     } finally {
       setLoading(false);
@@ -130,7 +141,7 @@ function MessFeePayment() {
       setCheckingMonth(false);
       
       if (alreadyPaid) {
-        alert(`❌ You have already paid for ${selectedMonth}. Duplicate payment not allowed.`);
+        toast.error(`You have already paid for ${selectedMonth}. Duplicate payment not allowed.`);
         setFormData({
           ...formData,
           month: "",
@@ -158,7 +169,7 @@ function MessFeePayment() {
         days: "",
         amount: ""
       });
-      alert(`⚠️ No billing rate found for ${selectedMonth}. Please contact admin.`);
+      toast.warn(`No billing rate found for ${selectedMonth}. Please contact admin.`);
     }
   };
 
@@ -220,7 +231,7 @@ function MessFeePayment() {
         const paymentTime = res.data.payment_time || 'Just now';
         const daysPaid = res.data.days || studentData.days;
         
-        alert(`✅ Payment Verified Successfully!\n\nReceipt No: ${res.data.receipt_id}\nPayment Time: ${paymentTime}\nDays: ${daysPaid}`);
+        toast.success(`Payment Verified Successfully!\n\nReceipt No: ${res.data.receipt_id}\nPayment Time: ${paymentTime}\nDays: ${daysPaid}`);
         
         if (res.data.receipt_id) {
           await handleDownloadPDF(res.data.receipt_id);
@@ -251,7 +262,7 @@ function MessFeePayment() {
       }
     } catch (err) {
       console.error("Verification Error:", err.response?.data);
-      alert("Payment was successful, but server verification failed. Please contact support.");
+      toast.error("Payment was successful, but server verification failed. Please contact support.");
     }
   };
 
@@ -270,10 +281,10 @@ function MessFeePayment() {
       link.click();
       link.parentNode.removeChild(link);
       
-      alert("📄 Receipt downloaded successfully!");
+      toast.success("Receipt downloaded successfully!");
     } catch (error) {
       console.error("Error downloading PDF:", error);
-      alert("Could not download the receipt right now. Please contact administration.");
+      toast.error("Could not download the receipt right now. Please contact administration.");
     }
   };
 
@@ -282,12 +293,12 @@ function MessFeePayment() {
     e.preventDefault();
     
     if (!formData.student_name || !formData.roll_no || !formData.month || !formData.date) {
-      alert("Please fill all required fields");
+      toast.warn("Please fill all required fields");
       return;
     }
     
     if (!formData.days || !formData.amount) {
-      alert("Please select a valid month with billing rates");
+      toast.warn("Please select a valid month with billing rates");
       return;
     }
     
@@ -303,7 +314,7 @@ function MessFeePayment() {
       // Double check payment not already made (for race condition)
       const alreadyPaid = await checkMonthAlreadyPaid(formData.roll_no, formData.month);
       if (alreadyPaid) {
-        alert(`❌ Payment for ${formData.month} already exists. Cannot process duplicate.`);
+        toast.error(`Payment for ${formData.month} already exists. Cannot process duplicate.`);
         setLoading(false);
         return;
       }
@@ -372,7 +383,7 @@ function MessFeePayment() {
           ondismiss: () => {
             console.log("Payment modal closed by user");
             setLoading(false);
-            alert("Payment cancelled. You can try again anytime.");
+            toast.info("Payment cancelled. You can try again anytime.");
           }
         }
       };
@@ -381,7 +392,7 @@ function MessFeePayment() {
       
       razorpay.on('payment.failed', function (response) {
         console.error("Payment failed:", response.error);
-        alert(`Payment failed: ${response.error.description || "Please try again"}`);
+        toast.error(`Payment failed: ${response.error.description || "Please try again"}`);
         setLoading(false);
       });
       
@@ -391,13 +402,13 @@ function MessFeePayment() {
       console.error("❌ Payment error:", error);
       
       if (error.message.includes("Razorpay SDK")) {
-        alert("Unable to load payment gateway. Please check your internet connection and refresh the page.");
+        toast.error("Unable to load payment gateway. Please check your internet connection and refresh the page.");
       } else if (error.response?.status === 500) {
-        alert("Server error. Please try again later.");
+        toast.error("Server error. Please try again later.");
       } else if (error.response?.data?.error) {
-        alert(error.response.data.error);
+        toast.error(error.response.data.error);
       } else {
-        alert(error.message || "Payment failed. Please try again.");
+        toast.error(error.message || "Payment failed. Please try again.");
       }
       
       setLoading(false);

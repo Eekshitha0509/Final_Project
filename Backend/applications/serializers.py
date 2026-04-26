@@ -1,13 +1,35 @@
 # applications/serializers.py
 
 from rest_framework import serializers
-from .models import Block, Floor, Room, Booking, Payment
+from .models import Block, Floor, Room, Booking, Payment, HostelAllocation
 
 
 class BlockSerializer(serializers.ModelSerializer):
+    floors_count = serializers.SerializerMethodField()
+    floors_list = serializers.SerializerMethodField()
+    allocation = serializers.SerializerMethodField()
+    
     class Meta:
         model = Block
-        fields = '__all__'
+        fields = ['id', 'name', 'display_name', 'total_floors', 'description', 'floors_count', 'floors_list', 'allocation']
+    
+    def get_floors_count(self, obj):
+        return obj.floors.count()
+    
+    def get_floors_list(self, obj):
+        return list(obj.floors.values_list('floor_number', flat=True))
+    
+    def get_allocation(self, obj):
+        try:
+            alloc = obj.allocation
+            return {
+                'year_1_floors': alloc.year_1_floors,
+                'year_2_floors': alloc.year_2_floors,
+                'year_3_floors': alloc.year_3_floors,
+                'year_4_floors': alloc.year_4_floors,
+            }
+        except HostelAllocation.DoesNotExist:
+            return None
 
 
 class FloorSerializer(serializers.ModelSerializer):

@@ -2,6 +2,7 @@ import React, { useState, useRef } from "react";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import watermark from "../assets/watermark.jpg";
+import { toast } from 'react-toastify';
 
 const STUDENT_API = 'http://127.0.0.1:8000/api/student/';
 
@@ -27,7 +28,7 @@ const EstimationSlip = () => {
   });
 
   const fetchStudent = async () => {
-    if (!studentId) return alert("Please enter Admission or Registration Number");
+    if (!studentId) return toast.warn("Please enter Admission or Registration Number");
     setLoading(true);
     try {
       // First fetch student profile
@@ -53,17 +54,17 @@ const EstimationSlip = () => {
       });
     } catch (error) {
       console.error("Error:", error);
-      alert("Student record not found in database.");
+      toast.error("Student record not found in database.");
     } finally {
       setLoading(false);
     }
   };
 
   const generatePDF = async () => {
-    if (!student.full_name) return alert("Please load student details first.");
+    if (!student.full_name) return toast.warn("Please load student details first.");
 
     const printWindow = window.open('', '_blank');
-    if (!printWindow) return alert("Please allow popups for this site.");
+    if (!printWindow) return toast.warn("Please allow popups for this site.");
     
     printWindow.document.write('<p style="font-family:sans-serif; text-align:center; margin-top:50px;">Generating Print Preview... Please wait.</p>');
 
@@ -92,7 +93,7 @@ const EstimationSlip = () => {
     } catch (error) {
       console.error("PDF Error:", error);
       printWindow.close();
-      alert("Error generating PDF. Ensure no special CSS filters are active.");
+      toast.error("Error generating PDF. Ensure no special CSS filters are active.");
     }
   };
 

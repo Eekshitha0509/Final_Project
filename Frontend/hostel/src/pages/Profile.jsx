@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import PropTypes from "prop-types";
 import { studentApi as api } from "../services/api";
+import { toast } from 'react-toastify';
 
 function Profile() {
   const navigate = useNavigate();
@@ -19,101 +20,116 @@ function Profile() {
     student: "", father: "", mother: "", aadhar: "", father_aadhar: "", mother_aadhar: ""
   });
 
+  // Auto-fetch profile on mount using JWT token
   useEffect(() => {
-    const fetchStudent = async () => {
-      try {
-        const userStr = localStorage.getItem("user");
+    fetchProfile();
+  }, []);
 
-        if (!userStr) {
-          navigate("/login/student");
-          return;
-        }
+  const fetchProfile = async () => {
+    try {
+      const token = localStorage.getItem('access');
+      const userStr = localStorage.getItem("user");
+      
+      console.log("Token exists:", !!token);
+      console.log("User data:", userStr);
+      
+      if (!token) {
+        navigate("/login/student");
+        return;
+      }
 
+      let studentId = '';
+      if (userStr) {
         const user = JSON.parse(userStr);
-        const studentId = user.admission_no || user.admission_number || user.username;
+        studentId = user.admission_no || user.admission_number || user.username;
+        console.log("Student ID:", studentId);
+      }
 
-        try {
-          const params = new URLSearchParams();
-          if (studentId) params.append("admission_no", studentId);
-          if (user.reg_no) params.append("reg_no", user.reg_no);
+      if (!studentId) {
+        toast.error("User not found. Please login again.");
+        navigate("/login/student");
+        return;
+      }
 
-          const res = await api.get(`/get-student-profile/?${params.toString()}`);
-          const student = res.data;
-
-          if (student && Object.keys(student).length > 0 && !student.error) {
-            console.log("✅ Loaded from DB");
-
-            // ✅ Fixed Nested Ternary
-            const getImageUrl = (path) => {
-              if (!path) return "";
-              return path.startsWith('http') ? path : `http://127.0.0.1:8000${path}`;
-            };
-
-            setFormData((prev) => ({
-              ...prev,
-              full_name: student.full_name || prev.full_name,
-              dob: student.dob || prev.dob,
-              aadhar_no: student.aadhar || student.aadhar_no || prev.aadhar_no,
-              admission_no: student.admission_no || prev.admission_no,
-              reg_no: student.reg_no || prev.reg_no,
-              roll_no: student.roll_no || prev.roll_no,
-              degree: student.degree || prev.degree,
-              branch: student.branch || prev.branch,
-              year: student.class_yr || student.year || prev.year,
-              admission_date: student.admission_date || prev.admission_date,
-              caste: student.caste || prev.caste,
-              mobile: student.mobile || prev.mobile,
-              email: student.email || prev.email,
-              address: student.address || prev.address,
-              father_name: student.father_name || prev.father_name,
-              father_phone: student.father_phone || prev.father_phone,
-              father_aadhar_no: student.father_aadhar_no || student.father_aadhar || prev.father_aadhar_no,
-              mother_name: student.mother_name || prev.mother_name,
-              mother_phone: student.mother_phone || prev.mother_phone,
-              mother_aadhar_no: student.mother_aadhar_no || student.mother_aadhar || prev.mother_aadhar_no,
-              amount: student.amount || prev.amount,
-              
-              student_photo: null,
-              father_photo: null,
-              mother_photo: null,
-              aadhar_pdf: null,
-              father_aadhar_pdf: null,
-              mother_aadhar_pdf: null,
-            }));
-
-            setPreview({
-              student: getImageUrl(student.student_photo),
-              father: getImageUrl(student.father_photo),
-              mother: getImageUrl(student.mother_photo),
-              aadhar: getImageUrl(student.aadhar_pdf || student.aadhar_file),
-              father_aadhar: getImageUrl(student.father_aadhar_pdf || student.father_aadhar_file),
-              mother_aadhar: getImageUrl(student.mother_aadhar_pdf || student.mother_aadhar_file),
-            });
-
-            return; 
-          }
-        } catch (err) {
-          // ✅ Handled Error properly
-          console.warn("⚠️ No DB data or fetch failed, falling back to login data.", err);
+      // Fetch using JWT auth
+      const response = await fetch(
+        `http://127.0.0.1:8000/api/student/get-student-profile/?admission_no=${studentId}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
         }
+      );
+      
+      console.log("Response status:", response.status);
+      const student = await response.json();
+      console.log("Profile API response:", student);
+      
+      if (student && !student.error) {
+        const getImageUrl = (path) => {
+          if (!path) return "";
+          // Handle both absolute URLs and relative URLs
+          if (path.startsWith('http')) return path;
+          if (path.startsWith('/')) return `http://127.0.0.1:8000${path}`;
+          return `http://127.0.0.1:8000/${path}`;
+        };
 
-        console.log("🆕 Using registration data");
+        console.log("Student photo URL:", student.student_photo);
+        console.log("Father photo URL:", student.father_photo);
+        console.log("Mother photo URL:", student.mother_photo);
+
         setFormData((prev) => ({
           ...prev,
-          full_name: user.full_name || user.first_name || "",
-          admission_no: studentId || "",
-          reg_no: user.reg_no || studentId || "",
-          email: user.email || "",
-          mobile: user.phone_number || user.phone || ""
+          full_name: student.full_name || prev.full_name,
+          dob: student.dob || prev.dob,
+          aadhar_no: student.aadhar || student.aadhar_no || prev.aadhar_no,
+          admission_no: student.admission_no || prev.admission_no,
+          reg_no: student.reg_no || prev.reg_no,
+          roll_no: student.roll_no || prev.roll_no,
+          degree: student.degree || prev.degree,
+          branch: student.branch || prev.branch,
+          year: student.class_yr || student.year || prev.year,
+          admission_date: student.admission_date || prev.admission_date,
+          caste: student.caste || prev.caste,
+          mobile: student.mobile || prev.mobile,
+          email: student.email || prev.email,
+          address: student.address || prev.address,
+          father_name: student.father_name || prev.father_name,
+          father_phone: student.father_phone || prev.father_phone,
+          father_aadhar_no: student.father_aadhar_no || student.father_aadhar || prev.father_aadhar_no,
+          mother_name: student.mother_name || prev.mother_name,
+          mother_phone: student.mother_phone || prev.mother_phone,
+          mother_aadhar_no: student.mother_aadhar_no || student.mother_aadhar || prev.mother_aadhar_no,
+          amount: student.amount || prev.amount,
         }));
 
-      } catch (error) {
-        console.error("Error:", error);
+        setPreview({
+          student: getImageUrl(student.student_photo),
+          father: getImageUrl(student.father_photo),
+          mother: getImageUrl(student.mother_photo),
+          aadhar: getImageUrl(student.aadhar_pdf || student.aadhar_file),
+          father_aadhar: getImageUrl(student.father_aadhar_pdf || student.father_aadhar_file),
+          mother_aadhar: getImageUrl(student.mother_aadhar_pdf || student.mother_aadhar_file),
+        });
+        
+        console.log("Preview URLs set:", {
+          student: getImageUrl(student.student_photo),
+          father: getImageUrl(student.father_photo),
+          mother: getImageUrl(student.mother_photo),
+        });
+      } else {
+        console.log("Profile not found or error:", student.error);
+        toast.error(student.error || "Could not load profile");
       }
-    };
+    } catch (err) {
+      console.error("Error fetching profile:", err);
+    }
+  };
 
-    fetchStudent();
-  }, [navigate]);
+  useEffect(() => {
+    fetchProfile();
+  }, []);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -157,12 +173,12 @@ function Profile() {
         { headers: { "Content-Type": "multipart/form-data" } }
       );
       if (response.status === 200 || response.status === 201) {
-        alert("Profile Saved Successfully!");
+        toast.success("Profile Saved Successfully!");
         navigate("/home");
       }
     } catch (error) {
       console.error("Submission error details:", error.response?.data);
-      alert("Submission Failed. Check console.");
+      toast.error("Submission Failed. Check console.");
     }
   };
 

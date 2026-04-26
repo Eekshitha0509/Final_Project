@@ -2,6 +2,7 @@ import React, { useState, useRef } from "react";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import watermark from "../assets/watermark.jpg";
+import { toast } from 'react-toastify';
 
 const STUDENT_API = 'http://127.0.0.1:8000/api/student/';
 const APP_API = 'http://127.0.0.1:8000/api/app/';
@@ -20,7 +21,7 @@ const NoDuesCertificate = () => {
 
   // --- FETCH STUDENT ---
   const fetchStudent = async () => {
-    if (!studentId) return alert("Please enter an Admission or Registration Number");
+    if (!studentId) return toast.warn("Please enter an Admission or Registration Number");
 
     setLoading(true);
     setLoaded(false);
@@ -51,7 +52,7 @@ const NoDuesCertificate = () => {
   // --- CHECK NO DUES ---
   const checkNoDues = async () => {
     if (!months) {
-      alert("Please enter months stayed");
+      toast.warn("Please enter months stayed");
       return;
     }
 
@@ -60,7 +61,7 @@ const NoDuesCertificate = () => {
       const token = localStorage.getItem("access_token");
       
       if (!token) {
-        alert("Please login again. Session expired.");
+        toast.error("Please login again. Session expired.");
         return;
       }
 
@@ -81,7 +82,7 @@ const NoDuesCertificate = () => {
 
       if (!updateRes.ok) {
         if (updateRes.status === 401) {
-          alert("Session expired. Please login again.");
+          toast.error("Session expired. Please login again.");
           return;
         }
         throw new Error("Failed to update months");
@@ -99,9 +100,7 @@ const NoDuesCertificate = () => {
       const data = await res.json();
 
       if (!data.is_no_dues) {
-        alert(
-          `⚠️ Pending dues\nPaid: ₹${data.total_paid}\nRequired: ₹${data.required_amount}`
-        );
+        toast.warn(`Pending dues\nPaid: ₹${data.total_paid}\nRequired: ₹${data.required_amount}`);
         return;
       }
 
@@ -109,7 +108,7 @@ const NoDuesCertificate = () => {
 
     } catch (error) {
       console.error(error);
-      alert("Error processing request");
+      toast.error("Error processing request");
     }
   };
 

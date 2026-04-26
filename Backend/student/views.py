@@ -314,12 +314,16 @@ def get_student_profile(request):
                 pass
             return None
         
+        # Safely get attributes with hasattr
+        def safe_getattr(obj, attr, default=None):
+            return getattr(obj, attr, default) if hasattr(obj, attr) else default
+        
         return Response({
             'full_name': student.full_name,
             'aadhar': student.aadhar,
             'admission_no': student.admission_no,
             'reg_no': student.reg_no,
-            'degree': getattr(student, 'degree', ''),
+            'degree': safe_getattr(student, 'degree', ''),
             'class_yr': student.class_yr,
             'branch': student.branch,
             'roll_no': student.roll_no,
@@ -335,6 +339,12 @@ def get_student_profile(request):
             'father_phone': student.father_phone,
             'mother_name': student.mother_name,
             'mother_phone': student.mother_phone,
+            'student_photo': get_file_url(student.student_photo),
+            'father_photo': get_file_url(student.father_photo),
+            'mother_photo': get_file_url(student.mother_photo),
+            'aadhar_pdf': get_file_url(student.aadhar_pdf),
+            'father_aadhar': get_file_url(safe_getattr(student, 'father_aadhar')),
+            'mother_aadhar': get_file_url(safe_getattr(student, 'mother_aadhar')),
         })
 
     except Exception as e:
@@ -365,13 +375,16 @@ def get_my_profile(request):
                 pass
             return None
         
+        def safe_getattr(obj, attr, default=None):
+            return getattr(obj, attr, default) if hasattr(obj, attr) else default
+        
         return Response({
             "exists": True,
             "full_name": student.full_name,
             "aadhar": student.aadhar,
             "admission_no": student.admission_no,
             "reg_no": student.reg_no,
-            "degree": getattr(student, 'degree', ''),
+            "degree": safe_getattr(student, 'degree', ''),
             "class_yr": student.class_yr,
             "branch": student.branch,
             "roll_no": student.roll_no,
@@ -387,6 +400,12 @@ def get_my_profile(request):
             "father_phone": student.father_phone,
             "mother_name": student.mother_name,
             "mother_phone": student.mother_phone,
+            "student_photo": get_file_url(student.student_photo),
+            "father_photo": get_file_url(student.father_photo),
+            "mother_photo": get_file_url(student.mother_photo),
+            "aadhar_pdf": get_file_url(student.aadhar_pdf),
+            "father_aadhar": get_file_url(safe_getattr(student, 'father_aadhar')),
+            "mother_aadhar": get_file_url(safe_getattr(student, 'mother_aadhar')),
         })
         
     except Exception as e:

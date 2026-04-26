@@ -2,6 +2,7 @@ import React, { useState, useRef } from "react";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import watermark from "../assets/watermark.jpg";
+import { toast } from 'react-toastify';
 
 const STUDENT_API = 'http://127.0.0.1:8000/api/student/';
 
@@ -25,7 +26,7 @@ const ResidenceCertificate = () => {
 
   // --- FETCH DATA FROM DATABASE WITH HOSTEL DETAILS ---
   const fetchStudent = async () => {
-    if (!studentId) return alert("Please enter Admission or Registration Number");
+    if (!studentId) return toast.warn("Please enter Admission or Registration Number");
     setLoading(true);
     try {
       // First fetch student profile
@@ -52,7 +53,7 @@ const ResidenceCertificate = () => {
       });
     } catch (error) {
       console.error("Error:", error);
-      alert("Student record not found in database.");
+      toast.error("Student record not found in database.");
     } finally {
       setLoading(false);
     }
@@ -60,7 +61,7 @@ const ResidenceCertificate = () => {
 
   // --- GENERATE PDF ---
   const generatePDF = async () => {
-    if (!student.full_name) return alert("Please load student details first.");
+    if (!student.full_name) return toast.warn("Please load student details first.");
 
     const canvas = await html2canvas(certificateRef.current, { scale: 2 });
     const imgData = canvas.toDataURL("image/png");

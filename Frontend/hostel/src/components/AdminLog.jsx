@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from "react-router-dom";
+import { toast } from 'react-toastify';
 
 const STUDENT_API = 'http://127.0.0.1:8000/api/student/';
 
@@ -55,7 +56,7 @@ function AdminLog() {
           })
         );
         
-        alert("Admin Login Successful");
+        toast.success("Admin Login Successful");
         navigate("/adminpanel");
       } else {
         setError(data.error || data.message || "Login failed");

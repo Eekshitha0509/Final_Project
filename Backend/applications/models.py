@@ -125,3 +125,21 @@ class Payment(models.Model):
     
     def __str__(self):
         return f"Payment {self.id} - {self.booking.student.username} - ₹{self.amount}"
+
+
+class HostelAllocation(models.Model):
+    block = models.OneToOneField(Block, on_delete=models.CASCADE, related_name='allocation')
+    year_1_floors = models.JSONField(default=list, blank=True)
+    year_2_floors = models.JSONField(default=list, blank=True)
+    year_3_floors = models.JSONField(default=list, blank=True)
+    year_4_floors = models.JSONField(default=list, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    def __str__(self):
+        return f"Allocation for {self.block.display_name}"
+    
+    def get_floors_for_year(self, year):
+        return getattr(self, f'year_{year}_floors', [])
+    
+    def set_floors_for_year(self, year, floors):
+        setattr(self, f'year_{year}_floors', floors)

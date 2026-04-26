@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import { toast } from 'react-toastify';
 
 const APP_API = 'http://127.0.0.1:8000/api/app/';
 
@@ -21,7 +22,7 @@ const Payment = () => {
     try {
       const token = localStorage.getItem('access');
       if (!token) {
-        alert('Please login first');
+        toast.error('Please login first');
         navigate('/login/student');
         return;
       }
@@ -38,15 +39,15 @@ const Payment = () => {
         setAmount(b.price_per_semester || b.amount || '10000');
       } else if (response.data.status === 'pending') {
         const b = response.data;
-        setBooking({ id: b.booking_id, room_number: 'Booking ' + b.booking_id });
+        setBooking({ id: b.booking_id, room_number: b.room_number });
         setAmount(b.amount || '10000');
       } else {
-        alert('No booking found');
+        toast.warn('No booking found');
         navigate('/homepage');
       }
     } catch (err) {
       console.error('Error:', err);
-      alert('Failed to load booking');
+      toast.error('Failed to load booking');
       navigate('/homepage');
     }
   };
@@ -127,13 +128,13 @@ const Payment = () => {
             );
             
             if (verifyResponse.data.success) {
-              alert('Payment successful! Room booked.');
+              toast.success('Payment successful! Room booked.');
               navigate('/homepage');
             } else {
-              alert('Payment verification failed');
+              toast.error('Payment verification failed');
             }
           } catch (err) {
-            alert('Payment verification error');
+            toast.error('Payment verification error');
           }
         }
       };

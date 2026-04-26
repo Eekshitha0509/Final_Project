@@ -26,7 +26,7 @@ def create_blocks_floors_rooms():
         total_floors=6,
         description='Orange Hostel - For 1st and 4th Year Students'
     )
-    print(f"✓ Created: {orange_block.display_name}")
+    print("OK Created: " + orange_block.display_name)
     
     meta_block = Block.objects.create(
         name='meta',
@@ -34,7 +34,7 @@ def create_blocks_floors_rooms():
         total_floors=3,
         description='Meta H Hostel - For 2nd Year Students'
     )
-    print(f"✓ Created: {meta_block.display_name}")
+    print("OK Created: " + meta_block.display_name)
     
     alumini_block = Block.objects.create(
         name='alumini',
@@ -42,7 +42,7 @@ def create_blocks_floors_rooms():
         total_floors=3,
         description='Alumini Hostel - For 3rd Year Students'
     )
-    print(f"✓ Created: {alumini_block.display_name}")
+    print(f"OK Created: {alumini_block.display_name}")
     
     # ========== ORANGE HOSTEL ==========
     print("\nCreating Orange Block floors and rooms...")
@@ -182,7 +182,7 @@ def create_blocks_floors_rooms():
     Room.objects.create(floor=floor_5, room_number='W1', room_type='washroom')
     Room.objects.create(floor=floor_5, room_number='W2', room_type='washroom')
     
-    print(f"✓ Orange Hostel: Created {Room.objects.filter(floor__block=orange_block).count()} rooms across {Floor.objects.filter(block=orange_block).count()} floors")
+    print(f"OK Orange Hostel: Created {Room.objects.filter(floor__block=orange_block).count()} rooms across {Floor.objects.filter(block=orange_block).count()} floors")
     
     # ========== META HOSTEL ==========
     print("\nCreating Meta H Block floors and rooms...")
@@ -279,7 +279,7 @@ def create_blocks_floors_rooms():
     Room.objects.create(floor=meta_2, room_number='W1', room_type='washroom')
     Room.objects.create(floor=meta_2, room_number='W2', room_type='washroom')
     
-    print(f"✓ Meta Hostel: Created {Room.objects.filter(floor__block=meta_block).count()} rooms across {Floor.objects.filter(block=meta_block).count()} floors")
+    print(f"OK Meta Hostel: Created {Room.objects.filter(floor__block=meta_block).count()} rooms across {Floor.objects.filter(block=meta_block).count()} floors")
     
     # ========== ALUMINI HOSTEL ==========
     print("\nCreating Alumini Block floors and rooms...")
@@ -341,7 +341,7 @@ def create_blocks_floors_rooms():
     Room.objects.create(floor=alumini_2, room_number='W1', room_type='washroom')
     Room.objects.create(floor=alumini_2, room_number='W2', room_type='washroom')
     
-    print(f"✓ Alumini Hostel: Created {Room.objects.filter(floor__block=alumini_block).count()} rooms across {Floor.objects.filter(block=alumini_block).count()} floors")
+    print(f"OK Alumini Hostel: Created {Room.objects.filter(floor__block=alumini_block).count()} rooms across {Floor.objects.filter(block=alumini_block).count()} floors")
     
     # Summary
     print("\n" + "="*50)

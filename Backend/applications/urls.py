@@ -51,6 +51,10 @@ urlpatterns = [
     
     # Utility
     path('test/', views.test_endpoint, name='test'),
+    
+    # Hostel Allocation
+    path('allocations/', views.get_allocations, name='get_allocations'),
+    path('save-allocation/', views.save_allocation, name='save_allocation'),
 ]
 
 if settings.DEBUG:

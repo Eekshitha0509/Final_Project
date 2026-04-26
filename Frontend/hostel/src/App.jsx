@@ -1,9 +1,9 @@
-// App.jsx - Cleaned & Updated Version
 import React from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 
 // Layout Components
 import Header from "./components/Header";
+import Footer from "./components/Footer";
 
 // Auth Components
 import StudentLog from "./components/StudentLog";
@@ -21,27 +21,25 @@ import EstimationCertificate from "./components/EstimationCertificate";
 import Homepage from "./pages/Homepage";
 import LandingPage from "./pages/LandingPage";
 import Profile from "./pages/Profile";
-import RoomBooking from "./pages/RoomBooking"; // ✅ Added this import
+import RoomBooking from "./pages/RoomBooking"; 
 import AdminHomepage from "./pages/Adminhomepage";
 import MessPayment from "./pages/MessPayment";
 import Payment from './pages/Payment';
+import AboutHostels from "./pages/AboutHostels";
 
-// Role-specific Protected Routes based on new LocalStorage setup
-const StudentRoute = ({ children }) => {
-  // Check for the JWT access token we established during our login cleanup
+// Protected Route wrapper - checks localStorage for auth and redirects to landing if not logged in
+const ProtectedRoute = ({ children, requireAdmin = false }) => {
   const token = localStorage.getItem('access');
+  const adminToken = localStorage.getItem('admin');
+  
+  if (requireAdmin) {
+    if (!adminToken && !token) {
+      return <Navigate to="/" replace />;
+    }
+    return children;
+  }
   
   if (!token) {
-    return <Navigate to="/" replace />;
-  }
-  return children;
-};
-
-const AdminRoute = ({ children }) => {
-  // Admins might have a different token structure depending on your AdminLog.jsx
-  const adminToken = localStorage.getItem('admin') || localStorage.getItem('access');
-  
-  if (!adminToken) {
     return <Navigate to="/" replace />;
   }
   return children;
@@ -50,82 +48,96 @@ const AdminRoute = ({ children }) => {
 function App() {
   return (
     <Router>
-      {/* Header appears on all pages */}
-      <Header />
+      {/* 🔥 ADDED: This wrapper forces the screen to be full height and stacks everything */}
+      <div className="flex flex-col min-h-screen bg-slate-50">
+        
+        {/* Header appears on all pages */}
+        <Header />
+        
+        {/* 🔥 FIXED: Changed flex-grow:1 to flex-grow. This pushes the footer down. */}
+        <main className="flex-grow">
+          <Routes>
+            {/* Public Routes */}
+            <Route path="/" element={<LandingPage />} />
+            <Route path="/about" element={<AboutHostels />} />
+            <Route path="/login/student" element={<StudentLog />} />
+            <Route path="/login/admin" element={<AdminLog />} />
+            <Route path="/login/warden" element={<WardenLog />} />
+            <Route path="/register" element={<Register />} />
+            <Route path="/forgot-password" element={<ForgotPassword />} />
+            
+            {/* Payment Route */}
+            <Route path="/payment/:bookingId" element={
+              <ProtectedRoute>
+                <Payment />
+              </ProtectedRoute>
+            } />
+            
+            {/* Certificate Routes */}
+            <Route path="/nodues" element={
+              <ProtectedRoute>
+                <NoDuesCertificate />
+              </ProtectedRoute>
+            } />
+            <Route path="/residentcertificate" element={
+              <ProtectedRoute>
+                <ResidenceCertificate />
+              </ProtectedRoute>
+            } />
+            <Route path="/estimationslip" element={
+              <ProtectedRoute>
+                <EstimationCertificate />
+              </ProtectedRoute>
+            } />
+            
+            {/* Student Protected Routes */}
+            <Route path="/profile" element={
+              <ProtectedRoute>
+                <Profile />
+              </ProtectedRoute>
+            } />
+            <Route path="/homepage" element={
+              <ProtectedRoute>
+                <Homepage />
+              </ProtectedRoute>
+            } />
+            <Route path="/home" element={
+              <ProtectedRoute>
+                <Homepage />
+              </ProtectedRoute>
+            } />
+            <Route path="/Homepage" element={
+              <ProtectedRoute>
+                <Homepage />
+              </ProtectedRoute>
+            } />
+            <Route path="/room-booking" element={
+              <ProtectedRoute>
+                <RoomBooking />
+              </ProtectedRoute>
+            } />
+            <Route path="/mess-payment" element={
+              <ProtectedRoute>
+                <MessPayment />
+              </ProtectedRoute>
+            } />
+            
+            {/* Admin Protected Routes */}
+            <Route path="/adminpanel" element={
+              <ProtectedRoute requireAdmin={true}>
+                <AdminHomepage />
+              </ProtectedRoute>
+            } />
+            
+            {/* Catch all route */}
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </main>
+        
+        {/* Footer stays perfectly at the bottom */}
+        <Footer />
 
-      <Routes>
-        {/* Public Routes */}
-        <Route path="/" element={<LandingPage />} />
-        
-        {/* Auth Routes */}
-        <Route path="/login/student" element={<StudentLog />} />
-        <Route path="/login/admin" element={<AdminLog />} />
-        <Route path="/login/warden" element={<WardenLog />} />
-        <Route path="/register" element={<Register />} />
-        <Route path="/forgot-password" element={<ForgotPassword />} />
-        
-        {/* Payment Route (Protected by StudentRoute) */}
-        <Route path="/payment/:bookingId" element={
-          <StudentRoute>
-            <Payment />
-          </StudentRoute>
-        } />
-        
-        {/* Certificate Routes - Student Access */}
-        <Route path="/nodues" element={
-          <StudentRoute>
-            <NoDuesCertificate />
-          </StudentRoute>
-        } />
-        
-        <Route path="/residentcertificate" element={
-          <StudentRoute>
-            <ResidenceCertificate />
-          </StudentRoute>
-        } />
-        
-        <Route path="/estimationslip" element={
-          <StudentRoute>
-            <EstimationCertificate />
-          </StudentRoute>
-        } />
-        
-        {/* Student Protected Routes */}
-        <Route path="/profile" element={
-          <StudentRoute>
-            <Profile />
-          </StudentRoute>
-        } />
-        
-        <Route path="/home" element={
-          <StudentRoute>
-            <Homepage />
-          </StudentRoute>
-        } />
-        
-        {/* ✅ Room Booking Route */}
-        <Route path="/room-booking" element={
-          <StudentRoute>
-            <RoomBooking />
-          </StudentRoute>
-        } />
-        
-        <Route path="/mess-payment" element={
-          <StudentRoute>
-            <MessPayment />
-          </StudentRoute>
-        } />
-        
-        {/* Admin Protected Routes */}
-        <Route path="/adminpanel" element={
-          <AdminRoute>
-            <AdminHomepage />
-          </AdminRoute>
-        } />
-        
-        {/* Catch all route - 404 redirects to Landing Page */}
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+      </div>
     </Router>
   );
 }
