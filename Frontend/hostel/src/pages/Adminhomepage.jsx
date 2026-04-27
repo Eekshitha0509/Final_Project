@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import React, { useState, useEffect } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
 import axios from 'axios';
 import { toast } from 'react-toastify';
 
@@ -8,9 +8,17 @@ const STUDENT_API = 'http://127.0.0.1:8000/api/student/';
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
+  const location = useLocation();
 
   // --- State Management ---
   const [activeTab, setActiveTab] = useState("students");
+
+  // --- Set activeTab from navigation state ---
+  useEffect(() => {
+    if (location.state?.tab) {
+      setActiveTab(location.state.tab);
+    }
+  }, [location.state]);
   const [searchId, setSearchId] = useState("");
   const [searchType, setSearchType] = useState("admission_no");
   const [student, setStudent] = useState(null);

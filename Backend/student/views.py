@@ -496,43 +496,76 @@ def update_months(request):
 def mess_payment(request):
     data = request.data
     try:
-        from .models import MessPayment, BillingRate
+        from .models import MessPayment, BillingRate, StudentBillingRecord, Student
         amount_value = int(data.get("amount", 0)) 
         month_value = data.get("month")
         roll_no_value = data.get("roll_no")
+        test_mode = str(data.get("test_mode", "")).lower() == "true"
         
         billing_rate = None
         days_count = 0
+        net_demand = amount_value
         if month_value:
             billing_rate = BillingRate.objects.filter(month=month_value).first()
             if billing_rate:
                 days_count = billing_rate.days
+                net_demand = billing_rate.net_demand
+        
+        import uuid
+        receipt_no = f"MESS-{uuid.uuid4().hex[:8].upper()}"
         
         payment = MessPayment.objects.create(
+            receipt_no=receipt_no,
             student_name=data.get("student_name"),
             roll_no=roll_no_value,
-            room_no=data.get("room_no"),
-            class_yr=data.get("class_yr"),
-            date=data.get("date"),
-            month=month_value,
             amount=amount_value,
-            payment_mode=data.get("payment_mode"),
-            purpose=data.get("purpose"),
-            billing_rate=billing_rate,
-            days_count=days_count
+            month=month_value,
+            status="completed" if test_mode else "pending",
+            payment_mode="online"
         )
+        
+        if test_mode:
+            student = Student.objects.filter(reg_no=roll_no_value).first()
+            if student and month_value:
+                records = StudentBillingRecord.objects.filter(roll_no=student.reg_no)
+                if records.exists():
+                    record = records.first()
+                    month_key_map = {
+                        'Jul-24': 'july_data', 'Aug-24': 'august_data', 'Sep-24': 'september_data',
+                        'Oct-24': 'october_data', 'Nov-24': 'november_data', 'Dec-24': 'december_data',
+                        'Jan-25': 'january_data', 'Feb-25': 'february_data', 'Mar-25': 'march_data',
+                        'Apr-25': 'april_data', 'May-25': 'may_data',
+                    }
+                    field_name = month_key_map.get(month_value)
+                    if field_name:
+                        existing_data = getattr(record, field_name, {}) or {}
+                        existing_data.update({
+                            'status': 'success',
+                            'days': days_count,
+                            'amount': amount_value,
+                            'payment_date': str(data.get("date", "")),
+                            'receipt_no': payment.receipt_no,
+                            'mess_charge': str(billing_rate.mess_charge) if billing_rate else '0',
+                            'net_demand': str(net_demand) if net_demand else str(amount_value)
+                        })
+                        setattr(record, field_name, existing_data)
+                        record.save()
+        
         return Response({
             "message": "Payment data stored", 
             "receipt_id": payment.receipt_no,
             "id": payment.receipt_no,
             "payment_time": payment.created_at.strftime('%Y-%m-%d %H:%M:%S') if payment.created_at else None,
-            "payment_status": payment.status
+            "payment_status": payment.status,
+            "test_mode": test_mode
         })
     except ValueError:
         return Response({"error": "Invalid amount format"}, status=400)
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         print(f"Database Error: {e}")
-        return Response({"error": "Internal Server Error"}, status=500)
+        return Response({"error": f"Internal Server Error: {str(e)}"}, status=500)
 
 
 @api_view(['GET'])

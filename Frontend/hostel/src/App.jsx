@@ -28,12 +28,19 @@ import Payment from './pages/Payment';
 import AboutHostels from "./pages/AboutHostels";
 
 // Protected Route wrapper - checks localStorage for auth and redirects to landing if not logged in
-const ProtectedRoute = ({ children, requireAdmin = false }) => {
+const ProtectedRoute = ({ children, requireAdmin = false, requireCertAccess = false }) => {
   const token = localStorage.getItem('access');
   const adminToken = localStorage.getItem('admin');
   
   if (requireAdmin) {
     if (!adminToken && !token) {
+      return <Navigate to="/" replace />;
+    }
+    return children;
+  }
+  
+  if (requireCertAccess) {
+    if (!token && !adminToken) {
       return <Navigate to="/" replace />;
     }
     return children;
@@ -75,17 +82,17 @@ function App() {
             
             {/* Certificate Routes */}
             <Route path="/nodues" element={
-              <ProtectedRoute>
+              <ProtectedRoute requireCertAccess={true}>
                 <NoDuesCertificate />
               </ProtectedRoute>
             } />
             <Route path="/residentcertificate" element={
-              <ProtectedRoute>
+              <ProtectedRoute requireCertAccess={true}>
                 <ResidenceCertificate />
               </ProtectedRoute>
             } />
             <Route path="/estimationslip" element={
-              <ProtectedRoute>
+              <ProtectedRoute requireCertAccess={true}>
                 <EstimationCertificate />
               </ProtectedRoute>
             } />

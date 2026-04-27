@@ -3,11 +3,13 @@ import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import watermark from "../assets/watermark.jpg";
 import { toast } from 'react-toastify';
+import { useNavigate } from "react-router-dom";
 
 const STUDENT_API = 'http://127.0.0.1:8000/api/student/';
 const APP_API = 'http://127.0.0.1:8000/api/app/';
 
 const NoDuesCertificate = () => {
+  const navigate = useNavigate();
   const certificateRef = useRef();
 
   const [studentId, setStudentId] = useState("");
@@ -299,6 +301,12 @@ const NoDuesCertificate = () => {
               className="bg-slate-900 hover:bg-black text-white px-12 py-5 rounded-2xl font-black uppercase tracking-widest shadow-2xl transition-all active:scale-95"
             >
               Open Print Preview
+            </button>
+            <button
+              onClick={() => navigate("/adminpanel", { state: { tab: "certificates" } })}
+              className="mt-4 flex items-center gap-2 text-blue-600 hover:text-blue-800 font-semibold"
+            >
+              ← Back to Certificates
             </button>
           </div>
         </>

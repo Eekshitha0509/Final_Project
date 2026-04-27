@@ -15,7 +15,8 @@ function MessFeePayment() {
   const [searchType, setSearchType] = useState("admission_no");
   const [billingRates, setBillingRates] = useState({});
   const [availableMonths, setAvailableMonths] = useState([]);
-  const [checkingMonth, setCheckingMonth] = useState(false); // Add loading state for month check
+  const [checkingMonth, setCheckingMonth] = useState(false);
+  const [testMode, setTestMode] = useState(false);
 
   const [formData, setFormData] = useState({
     student_name: "",
@@ -35,22 +36,34 @@ function MessFeePayment() {
 
   // Fetch billing rates from database when component mounts
   useEffect(() => {
-    fetchAllBillingRates();
+    fetchAllBillingRates("");
   }, []);
 
-  const fetchAllBillingRates = async () => {
+  const fetchAllBillingRates = async (rollNo) => {
     try {
-      const response = await axios.get(APP_API + 'get-all-billing-rates/');
+      const token = localStorage.getItem('access');
+      
+      let url = APP_API + 'get-all-billing-rates/';
+      if (rollNo) {
+        url += `?roll_no=${rollNo}`;
+      }
+      
+      const config = token ? {
+        headers: { Authorization: `Bearer ${token}` }
+      } : {};
+      
+      const response = await axios.get(url, config);
+      
       if (response.data.success) {
         const rates = {};
         const months = [];
         response.data.data.forEach(rate => {
           rates[rate.month] = {
             days: rate.days,
-            amount: rate.mess_charge,
+            amount: rate.amount || rate.net_demand || rate.mess_charge,
             electric_charge: rate.electric_charge,
             service_charge: rate.service_charge,
-            net_demand: rate.net_demand
+            net_demand: rate.net_demand || rate.amount || rate.mess_charge
           };
           months.push(rate.month);
         });
@@ -114,6 +127,7 @@ function MessFeePayment() {
           department: studentData.branch || studentData.department
         });
         setStudentFound(true);
+        fetchAllBillingRates(studentData.roll_no || studentData.reg_no);
       } else {
         console.log("Student not found, error:", studentData.error);
         toast.error(studentData.error || 'Student not found');
@@ -333,13 +347,66 @@ function MessFeePayment() {
           amount: parseInt(formData.amount),
           days: formData.days,
           payment_mode: "Online",
-          purpose: "Mess Fee"
+          purpose: "Mess Fee",
+          test_mode: testMode ? "true" : "false"
         }
       );
       
       console.log("✅ Payment details saved:", saveResponse.data);
+      
+      if (testMode) {
+        // Still open Razorpay but with test order
+        const orderData = {
+          id: 'order_test_' + Date.now(),
+          amount: parseInt(formData.amount) * 100,
+          currency: 'INR'
+        };
+        
+        const options = {
+          key: "rzp_test_SPwdd9NISZKvHz",
+          amount: orderData.amount,
+          currency: orderData.currency || "INR",
+          name: "Andhra University",
+          description: `Mess Fee Payment (Test Mode) - ${formData.month}`,
+          order_id: orderData.id,
+          prefill: {
+            name: formData.student_name,
+            email: `${formData.roll_no}@au.edu.in`,
+            contact: "9999999999"
+          },
+          theme: {
+            color: "#FFA500"
+          },
+          handler: async function (paymentResponse) {
+            toast.success(`Payment Successful!\n\nReceipt No: ${saveResponse.data.receipt_id}\nMonth: ${formData.month}\nAmount: ₹${formData.amount}`);
+            
+            setFormData({
+              student_name: "",
+              roll_no: "",
+              admission_no: "",
+              reg_no: "",
+              room_no: "",
+              class_yr: "",
+              department: "",
+              date: "",
+              month: "",
+              days: "",
+              amount: "3000",
+              payment_mode: "Online",
+              purpose: "Mess Fee"
+            });
+            setStudentFound(false);
+            setSearchId("");
+            setLoading(false);
+          }
+        };
+        
+        const razorpay = new window.Razorpay(options);
+        razorpay.open();
+        return;
+      }
 
-      // Create Razorpay order
+      // Create Razorpay order for real payment
       console.log("💰 Creating Razorpay order...");
       const orderRes = await axios.post(APP_API + 'create-order/', { 
         amount: parseInt(formData.amount),
@@ -400,11 +467,14 @@ function MessFeePayment() {
       
     } catch (error) {
       console.error("❌ Payment error:", error);
+      console.error("Response data:", error.response?.data);
       
       if (error.message.includes("Razorpay SDK")) {
         toast.error("Unable to load payment gateway. Please check your internet connection and refresh the page.");
       } else if (error.response?.status === 500) {
-        toast.error("Server error. Please try again later.");
+        toast.error(`Server error: ${error.response?.data?.error || error.response?.data?.message || 'Please try again later.'}`);
+      } else if (error.response?.status === 400) {
+        toast.error(error.response.data.error || "Invalid request");
       } else if (error.response?.data?.error) {
         toast.error(error.response.data.error);
       } else {
@@ -638,6 +708,20 @@ function MessFeePayment() {
                     <span className="font-bold text-lg text-[#002147]">₹{formData.amount || "0"}/-</span>
                   </div>
                 </div>
+              </div>
+
+              {/* Test Mode Toggle */}
+              <div className="bg-yellow-50 rounded-xl p-4 border border-yellow-300">
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={testMode}
+                    onChange={(e) => setTestMode(e.target.checked)}
+                    className="w-5 h-5 text-yellow-600 focus:ring-yellow-500"
+                  />
+                  <span className="text-yellow-800 font-semibold">Test Mode Payment</span>
+                  <span className="text-xs text-yellow-600">(Skip Razorpay, mark as success)</span>
+                </label>
               </div>
 
               {/* Action Buttons */}
