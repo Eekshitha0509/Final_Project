@@ -13,23 +13,19 @@ function Header() {
     const isAdmin = localStorage.getItem('admin');
     const isStudent = !isAdmin && localStorage.getItem('access');
     
-    if (window.confirm("Are you sure you want to logout?")) {
-      localStorage.removeItem('access');
-      localStorage.removeItem('refresh');
-      localStorage.removeItem('user');
-      localStorage.removeItem('admin');
-      localStorage.removeItem('role');
-      // Clear ALL storage to prevent cached login
-      if (isStudent) {
-        navigate('/login/student');
-      } else if (isAdmin) {
-        navigate('/login/admin');
-      } else {
-        navigate('/');
-      }
-      // Force page reload to clear any cached state
-      window.location.reload();
+    localStorage.removeItem('access');
+    localStorage.removeItem('refresh');
+    localStorage.removeItem('user');
+    localStorage.removeItem('admin');
+    localStorage.removeItem('role');
+    if (isStudent) {
+      navigate('/login/student');
+    } else if (isAdmin) {
+      navigate('/login/admin');
+    } else {
+      navigate('/');
     }
+    window.location.reload();
   };
 
   return (

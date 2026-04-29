@@ -45,15 +45,13 @@ function Homepage() {
   };
 
   const handleLogout = () => {
-    if (window.confirm("Are you sure you want to logout?")) {
-      localStorage.removeItem("access");
-      localStorage.removeItem("refresh");
-      localStorage.removeItem("user");
-      localStorage.removeItem("role");
-      localStorage.clear();
-      window.dispatchEvent(new Event("logout"));
-      navigate("/");
-    }
+    localStorage.removeItem("access");
+    localStorage.removeItem("refresh");
+    localStorage.removeItem("user");
+    localStorage.removeItem("role");
+    localStorage.clear();
+    window.dispatchEvent(new Event("logout"));
+    navigate("/");
   };
 
   if (loading) {

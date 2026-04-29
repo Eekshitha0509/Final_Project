@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import { toast } from 'react-toastify';
+import jsPDF from 'jspdf';
 
 const APP_API = 'http://127.0.0.1:8000/api/app/';
 const STUDENT_API = 'http://127.0.0.1:8000/api/student/';
@@ -248,7 +249,7 @@ function MessFeePayment() {
         toast.success(`Payment Verified Successfully!\n\nReceipt No: ${res.data.receipt_id}\nPayment Time: ${paymentTime}\nDays: ${daysPaid}`);
         
         if (res.data.receipt_id) {
-          await handleDownloadPDF(res.data.receipt_id);
+          handleDownloadPDF(res.data.receipt_id, res.data);
         }
         
         // Reset form
@@ -280,25 +281,74 @@ function MessFeePayment() {
     }
   };
 
-  // Download PDF receipt
-  const handleDownloadPDF = async (receiptId) => {
+  // Generate and download PDF receipt
+  const handleDownloadPDF = (receiptId, paymentData) => {
     try {
-      const response = await axios.get(`${APP_API}receipt/${receiptId}/`, {
-        responseType: 'blob',
-      });
+      const doc = new jsPDF();
+      const pageWidth = doc.internal.pageSize.getWidth();
 
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `AU_Mess_Receipt_${receiptId}.pdf`);
-      document.body.appendChild(link);
-      link.click();
-      link.parentNode.removeChild(link);
-      
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(18);
+      doc.text("ANDHRA UNIVERSITY", pageWidth / 2, 20, { align: "center" });
+
+      doc.setFontSize(12);
+      doc.text("A.U. COLLEGE OF ENGINEERING (A), VISAKHAPATNAM", pageWidth / 2, 28, { align: "center" });
+      doc.setFontSize(11);
+      doc.text("SELF-SUPPORT HOSTELS (BOYS)", pageWidth / 2, 35, { align: "center" });
+
+      doc.setDrawColor(0, 33, 71);
+      doc.setLineWidth(0.8);
+      doc.line(20, 42, pageWidth - 20, 42);
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(14);
+      doc.text("MESS FEE RECEIPT", pageWidth / 2, 52, { align: "center" });
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(10);
+      let y = 65;
+      const leftX = 30;
+      const rightX = 80;
+
+      const fields = [
+        ["Receipt No:", receiptId],
+        ["Student Name:", paymentData.student_name || formData.student_name],
+        ["Roll No:", paymentData.roll_no || formData.roll_no],
+        ["Room No:", paymentData.room_no || formData.room_no || formData.room_no],
+        ["Class/Year:", paymentData.class_yr || formData.class_yr],
+        ["Month:", paymentData.month || formData.month],
+        ["Days:", paymentData.days || formData.days],
+        ["Amount:", `Rs. ${paymentData.amount || formData.amount}`],
+        ["Payment Mode:", "Online"],
+        ["Status:", "Completed"],
+        ["Date:", paymentData.payment_time || new Date().toLocaleString()],
+      ];
+
+      if (paymentData.razorpay_payment_id) {
+        fields.push(["Transaction ID:", paymentData.razorpay_payment_id]);
+      }
+
+      for (const [label, value] of fields) {
+        doc.setFont("helvetica", "bold");
+        doc.text(label, leftX, y);
+        doc.setFont("helvetica", "normal");
+        doc.text(String(value), rightX, y);
+        y += 7;
+      }
+
+      doc.setDrawColor(0, 33, 71);
+      doc.line(20, y + 3, pageWidth - 20, y + 3);
+
+      y += 10;
+      doc.setFont("helvetica", "italic");
+      doc.setFontSize(9);
+      doc.text("This is a system-generated receipt.", pageWidth / 2, y, { align: "center" });
+
+      doc.save(`AU_Mess_Receipt_${receiptId}.pdf`);
       toast.success("Receipt downloaded successfully!");
     } catch (error) {
-      console.error("Error downloading PDF:", error);
-      toast.error("Could not download the receipt right now. Please contact administration.");
+      console.error("Error generating PDF:", error);
+      toast.error("Could not generate the receipt.");
     }
   };
 

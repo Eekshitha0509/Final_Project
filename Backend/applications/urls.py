@@ -33,6 +33,7 @@ urlpatterns = [
     # Mess Payments
     path('create-order/', views.create_order, name='create_order'),
     path('verify-payment/', views.verify_payment, name='verify_payment'),
+    path('receipt/<str:receipt_id>/', views.download_receipt, name='download_receipt'),
     path('upload-excel/', views.upload_excel, name='upload_excel'),
     path('upload-billing-excel/', views.upload_billing_excel, name='upload_billing_excel'),
     

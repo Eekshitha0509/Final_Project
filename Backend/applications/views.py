@@ -1233,6 +1233,76 @@ def check_no_dues(request):
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
+def download_receipt(request, receipt_id):
+    from student.models import MessPayment
+    from reportlab.lib.pagesizes import A4
+    from reportlab.pdfgen import canvas
+    from reportlab.lib.units import mm
+    from io import BytesIO
+
+    try:
+        payment = MessPayment.objects.get(receipt_no=receipt_id)
+    except MessPayment.DoesNotExist:
+        return HttpResponse("Receipt not found", status=404)
+
+    buffer = BytesIO()
+    c = canvas.Canvas(buffer, pagesize=A4)
+    width, height = A4
+
+    c.setFont("Helvetica-Bold", 18)
+    c.drawString(70 * mm, height - 40 * mm, "ANDHRA UNIVERSITY")
+    c.setFont("Helvetica", 12)
+    c.drawString(60 * mm, height - 50 * mm, "A.U. COLLEGE OF ENGINEERING (A), VISAKHAPATNAM")
+    c.drawString(80 * mm, height - 58 * mm, "SELF-SUPPORT HOSTELS (BOYS)")
+
+    c.setStrokeColorRGB(0, 0.13, 0.28)
+    c.setLineWidth(1)
+    c.line(40 * mm, height - 65 * mm, width - 40 * mm, height - 65 * mm)
+
+    c.setFont("Helvetica-Bold", 14)
+    c.drawString(70 * mm, height - 80 * mm, "MESS FEE RECEIPT")
+
+    c.setFont("Helvetica", 11)
+    y = height - 95 * mm
+    line_height = 8 * mm
+
+    fields = [
+        ("Receipt No:", str(payment.receipt_no)),
+        ("Student Name:", payment.student_name),
+        ("Roll No:", payment.roll_no),
+        ("Month:", payment.month),
+        ("Amount:", f"Rs. {payment.amount}"),
+        ("Payment Mode:", payment.payment_mode.capitalize()),
+        ("Status:", payment.status.capitalize()),
+        ("Date:", payment.date.strftime("%d-%m-%Y") if payment.date else "N/A"),
+    ]
+
+    if payment.razorpay_payment_id:
+        fields.append(("Transaction ID:", payment.razorpay_payment_id))
+
+    for label, value in fields:
+        c.setFont("Helvetica-Bold", 11)
+        c.drawString(50 * mm, y, label)
+        c.setFont("Helvetica", 11)
+        c.drawString(100 * mm, y, value)
+        y -= line_height
+
+    c.setStrokeColorRGB(0, 0.13, 0.28)
+    c.line(40 * mm, y - 5 * mm, width - 40 * mm, y - 5 * mm)
+
+    c.setFont("Helvetica-Oblique", 9)
+    c.drawString(50 * mm, y - 15 * mm, "This is a system-generated receipt.")
+
+    c.save()
+    buffer.seek(0)
+
+    response = HttpResponse(buffer.getvalue(), content_type='application/pdf')
+    response['Content-Disposition'] = f'attachment; filename="AU_Mess_Receipt_{receipt_id}.pdf"'
+    return response
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
 def test_endpoint(request):
     return Response({"message": "Backend connection successful!", "authenticated": request.user.is_authenticated})
 
