@@ -21,7 +21,7 @@ class Student(models.Model):
     caste = models.CharField(max_length=50, blank=True, null=True)
     admission_no = models.CharField(max_length=20, unique=True)
     admission_date = models.DateField(blank=True, null=True)
-    degree = models.CharField(max_length=10, choices=DEGREE_CHOICES, null=True, blank=True)
+    degree = models.CharField(max_length=50, choices=DEGREE_CHOICES, null=True, blank=True)
     branch = models.CharField(max_length=50, blank=True, null=True)
     roll_no = models.CharField(max_length=20, blank=True, null=True)
     class_yr = models.CharField(max_length=10, blank=True, null=True)

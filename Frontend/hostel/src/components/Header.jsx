@@ -45,14 +45,17 @@ function Header() {
         />
 
         {/* Title */}
-        <h1 className="text-2xl md:text-3xl font-bold text-white tracking-wide">
-          AU <span className="text-yellow-400">SELF SUPPORTED HOSTELS</span>
-        </h1>
-
-        {/* Subtitle */}
-        <p className="text-xs text-slate-300 tracking-widest mt-1">
-          ANDHRA UNIVERSITY
-        </p>
+        <div className="text-center">
+          <h1 className="text-2xl md:text-3xl font-bold text-white tracking-wide">
+            ANDHRA UNIVERSITY
+          </h1>
+          <p className="text-sm md:text-base font-semibold text-yellow-400 mt-1">
+            A.U. COLLEGE OF ENGINEERING (A), VISAKHAPATNAM
+          </p>
+          <p className="text-xs md:text-sm font-bold text-white mt-1">
+            SELF-SUPPORT HOSTELS (BOYS)
+          </p>
+        </div>
 
         {/* Thin line */}
         <div className="mt-3 w-24 h-[2px] bg-yellow-400 rounded-full"></div>

@@ -82,9 +82,11 @@ function AboutHostels() {
         <h1 className="text-3xl font-bold text-[#002147] text-center mb-2">
           RULES AND REGULATIONS
         </h1>
-        <p className="text-center text-slate-500 mb-8">
-          AU SELF SUPPORTED HOSTELS
-        </p>
+        <div className="text-center mb-8">
+          <h2 className="text-xl font-bold text-[#002147]">ANDHRA UNIVERSITY</h2>
+          <p className="text-base font-semibold">A.U. COLLEGE OF ENGINEERING (A), VISAKHAPATNAM</p>
+          <p className="text-sm font-bold">SELF-SUPPORT HOSTELS (BOYS)</p>
+        </div>
 
         {/* Main Rules */}
         <div className="space-y-6 mb-10">

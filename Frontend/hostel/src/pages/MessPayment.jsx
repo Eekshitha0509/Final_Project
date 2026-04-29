@@ -490,9 +490,9 @@ function MessFeePayment() {
       <div className="max-w-5xl mx-auto bg-white shadow-2xl rounded-lg border-t-8 border-[#002147] relative px-6">
         {/* University Header */}
         <div className="bg-gradient-to-r from-[#002147] to-[#003366] p-6 text-center text-white">
-          <h1 className="text-lg font-bold text-yellow-400 uppercase tracking-widest">Andhra University</h1>
-          <h2 className="text-xl font-black uppercase mt-1">College of Engineering (A) Hostel</h2>
-          <p className="text-sm mt-2 opacity-90">Official Mess Fee Payment Portal</p>
+          <h1 className="text-2xl font-black uppercase tracking-widest">ANDHRA UNIVERSITY</h1>
+          <h2 className="text-lg font-bold mt-1">A.U. COLLEGE OF ENGINEERING (A), VISAKHAPATNAM</h2>
+          <p className="text-base font-semibold mt-2">SELF-SUPPORT HOSTELS (BOYS)</p>
           <div className="mt-3 flex justify-center gap-4 text-xs">
             <span className="bg-yellow-500 text-[#002147] px-3 py-1 rounded-full font-bold">Secure Payment</span>
             <span className="bg-green-500 text-white px-3 py-1 rounded-full font-bold">Razorpay Verified</span>

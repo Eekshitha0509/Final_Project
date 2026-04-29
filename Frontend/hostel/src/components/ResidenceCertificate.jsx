@@ -180,7 +180,7 @@ const ResidenceCertificate = () => {
           <h1 className="text-3xl font-black">ANDHRA UNIVERSITY</h1>
           <p className="text-lg font-bold">
             A.U. COLLEGE OF ENGINEERING (A), VISAKHAPATNAM <br />
-            SELF-SUPPORT HOSTELS
+            SELF-SUPPORT HOSTELS (BOYS)
           </p>
         </div>
 
