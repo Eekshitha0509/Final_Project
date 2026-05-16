@@ -1,3 +1,8 @@
+# Passwords for logins
+admin - admin123
+warden - warden123
+
+
 # Hostel Management Backend
 
 Django REST API for hostel application management.
